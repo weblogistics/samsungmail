@@ -13,21 +13,25 @@ import java.util.concurrent.TimeUnit
 object SyncScheduler {
     private const val PERIODIC_WORK_NAME = "periodic_mail_sync"
     private const val SEND_OUTBOX_WORK_NAME = "send_outbox"
-    private const val SYNC_INTERVAL_MINUTES = 15L
+    const val DEFAULT_SYNC_INTERVAL_MINUTES = 15L
 
     // Foreground/user-triggered inbox syncs (e.g. the Inbox screen's refresh button) call
     // MailRepository.syncAccount() directly instead of going through WorkManager, since that
     // gives the ViewModel a plain suspend-function result to drive UI state from. WorkManager is
     // used here for the unattended periodic schedule.
-    fun schedulePeriodicSync(context: Context) {
+    //
+    // UPDATE (not KEEP): this is re-invoked whenever the user changes the sync interval setting,
+    // and the new interval needs to actually take effect rather than being ignored because a
+    // periodic work request with this unique name already exists.
+    fun schedulePeriodicSync(context: Context, intervalMinutes: Long = DEFAULT_SYNC_INTERVAL_MINUTES) {
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
-        val request = PeriodicWorkRequestBuilder<SyncWorker>(SYNC_INTERVAL_MINUTES, TimeUnit.MINUTES)
+        val request = PeriodicWorkRequestBuilder<SyncWorker>(intervalMinutes, TimeUnit.MINUTES)
             .setConstraints(constraints)
             .build()
         WorkManager.getInstance(context)
-            .enqueueUniquePeriodicWork(PERIODIC_WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, request)
+            .enqueueUniquePeriodicWork(PERIODIC_WORK_NAME, ExistingPeriodicWorkPolicy.UPDATE, request)
     }
 
     // Sending goes through WorkManager (unlike sync) so a message composed while offline isn't

@@ -13,15 +13,20 @@ import com.coursework.unifiedmail.ui.inbox.InboxScreen
 import com.coursework.unifiedmail.ui.inbox.UnifiedInboxScreen
 import com.coursework.unifiedmail.ui.message.MessageDetailScreen
 import com.coursework.unifiedmail.ui.onboarding.AddAccountScreen
+import com.coursework.unifiedmail.ui.onboarding.EditAccountScreen
+import com.coursework.unifiedmail.ui.settings.SettingsScreen
 
 private object Routes {
     const val UNIFIED_INBOX = "unified_inbox"
     const val ACCOUNTS = "accounts"
     const val ADD_ACCOUNT = "add_account"
+    const val EDIT_ACCOUNT = "edit_account/{accountId}"
+    const val SETTINGS = "settings"
     const val INBOX = "inbox/{accountId}"
     const val MESSAGE_DETAIL = "message_detail/{accountId}/{uid}"
     const val COMPOSE = "compose/{accountId}/{mode}?sourceUid={sourceUid}"
 
+    fun editAccount(accountId: String) = "edit_account/$accountId"
     fun inbox(accountId: String) = "inbox/$accountId"
     fun messageDetail(accountId: String, uid: Long) = "message_detail/$accountId/$uid"
     fun composeNew(accountId: String) = "compose/$accountId/new"
@@ -35,19 +40,34 @@ fun MailNavGraph(navController: NavHostController = rememberNavController()) {
         composable(Routes.UNIFIED_INBOX) {
             UnifiedInboxScreen(
                 onManageAccountsClick = { navController.navigate(Routes.ACCOUNTS) },
+                onSettingsClick = { navController.navigate(Routes.SETTINGS) },
+                onAccountClick = { accountId -> navController.navigate(Routes.inbox(accountId)) },
                 onMessageClick = { accountId, uid -> navController.navigate(Routes.messageDetail(accountId, uid)) },
                 onComposeClick = { accountId -> navController.navigate(Routes.composeNew(accountId)) },
             )
         }
+        composable(Routes.SETTINGS) {
+            SettingsScreen(onBack = { navController.popBackStack() })
+        }
         composable(Routes.ACCOUNTS) {
             AccountListScreen(
                 onAddAccountClick = { navController.navigate(Routes.ADD_ACCOUNT) },
-                onAccountClick = { accountId -> navController.navigate(Routes.inbox(accountId)) },
+                onAccountClick = { accountId -> navController.navigate(Routes.editAccount(accountId)) },
             )
         }
         composable(Routes.ADD_ACCOUNT) {
             AddAccountScreen(
                 onAccountSaved = { navController.popBackStack() },
+                onBack = { navController.popBackStack() },
+            )
+        }
+        composable(
+            route = Routes.EDIT_ACCOUNT,
+            arguments = listOf(navArgument("accountId") { type = NavType.StringType }),
+        ) {
+            EditAccountScreen(
+                onAccountSaved = { navController.popBackStack() },
+                onAccountDeleted = { navController.popBackStack() },
                 onBack = { navController.popBackStack() },
             )
         }

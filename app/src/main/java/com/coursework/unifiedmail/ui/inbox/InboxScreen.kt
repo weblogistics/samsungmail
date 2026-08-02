@@ -9,7 +9,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
@@ -30,6 +30,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.coursework.unifiedmail.R
+import com.coursework.unifiedmail.ui.components.LastSyncedText
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -42,6 +43,8 @@ fun InboxScreen(
     val messages by viewModel.messages.collectAsState()
     val isSyncing by viewModel.isSyncing.collectAsState()
     val syncError by viewModel.syncError.collectAsState()
+    val lastSyncedAt by viewModel.lastSyncedAt.collectAsState()
+    val settings by viewModel.settings.collectAsState()
 
     Scaffold(
         topBar = {
@@ -61,11 +64,16 @@ fun InboxScreen(
         },
         floatingActionButton = {
             FloatingActionButton(onClick = onComposeClick) {
-                Icon(Icons.Filled.Add, contentDescription = "Compose")
+                Icon(Icons.Filled.Edit, contentDescription = "Compose")
             }
         },
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
+            LastSyncedText(
+                isSyncing = isSyncing,
+                lastSyncedAtEpochMillis = lastSyncedAt,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+            )
             syncError?.let { message ->
                 Text(
                     text = message,
@@ -95,6 +103,8 @@ fun InboxScreen(
                             MessageListItem(
                                 message = message,
                                 conversationCount = summary.messageCount,
+                                swipeRightAction = settings.swipeRightAction,
+                                swipeLeftAction = settings.swipeLeftAction,
                                 onClick = { onMessageClick(message.uid) },
                                 onToggleRead = { viewModel.setMessageRead(message, !message.isRead) },
                                 onRemove = { viewModel.removeMessageLocally(message) },

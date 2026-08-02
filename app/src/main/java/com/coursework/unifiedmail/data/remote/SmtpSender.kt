@@ -21,9 +21,14 @@ data class OutgoingMessage(
     val references: String? = null,
 )
 
-class SmtpSender @Inject constructor() {
+/** Behind an interface so MailRepository can be unit-tested against a fake instead of real SMTP. */
+interface SmtpSender {
+    suspend fun send(config: SmtpConfig, message: OutgoingMessage): Result<Unit>
+}
 
-    suspend fun send(config: SmtpConfig, message: OutgoingMessage): Result<Unit> = withContext(Dispatchers.IO) {
+class SmtpSenderImpl @Inject constructor() : SmtpSender {
+
+    override suspend fun send(config: SmtpConfig, message: OutgoingMessage): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             val session = Session.getInstance(MailSessionFactory.smtpProperties(config.security))
             val mimeMessage = MimeMessage(session).apply {

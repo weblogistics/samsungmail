@@ -9,9 +9,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
@@ -26,13 +24,15 @@ import androidx.compose.material.icons.filled.Email
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.coursework.unifiedmail.data.local.MessageEntity
-import com.coursework.unifiedmail.ui.theme.colorForKey
+import com.coursework.unifiedmail.data.settings.SwipeAction
+import com.coursework.unifiedmail.ui.components.SenderAvatar
+import com.coursework.unifiedmail.ui.theme.SwipeActionBlue
+import com.coursework.unifiedmail.ui.theme.SwipeActionIconTint
+import com.coursework.unifiedmail.ui.theme.SwipeActionOrange
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -41,10 +41,10 @@ import java.time.format.TextStyle
 import java.util.Locale
 
 /**
- * Shared row used by both the per-account Inbox and the unified Inbox. Swipe start-to-end toggles
- * read/unread (snaps back — it's not a real dismissal); swipe end-to-start removes the message
- * from the local cache only. Neither swipe reaches the server: there's no IMAP write/move/delete
- * support yet, so "remove" here means "hide locally," not "delete from the mailbox."
+ * Shared row used by both the per-account Inbox and the unified Inbox. Which action each swipe
+ * direction performs is configurable (Settings screen); a direction whose action is NONE has its
+ * gesture disabled outright rather than accepting the swipe and doing nothing. REMOVE is
+ * local-cache-only — no IMAP write support yet, so it never reaches the server.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,21 +53,28 @@ fun MessageListItem(
     onClick: () -> Unit,
     onToggleRead: () -> Unit,
     onRemove: () -> Unit,
+    swipeRightAction: SwipeAction,
+    swipeLeftAction: SwipeAction,
     accountColor: Color? = null,
     conversationCount: Int = 1,
 ) {
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
-            when (value) {
-                SwipeToDismissBoxValue.StartToEnd -> {
+            val action = when (value) {
+                SwipeToDismissBoxValue.StartToEnd -> swipeRightAction
+                SwipeToDismissBoxValue.EndToStart -> swipeLeftAction
+                SwipeToDismissBoxValue.Settled -> SwipeAction.NONE
+            }
+            when (action) {
+                SwipeAction.TOGGLE_READ -> {
                     onToggleRead()
                     false
                 }
-                SwipeToDismissBoxValue.EndToStart -> {
+                SwipeAction.REMOVE -> {
                     onRemove()
                     true
                 }
-                SwipeToDismissBoxValue.Settled -> true
+                SwipeAction.NONE -> false
             }
         },
     )
@@ -84,7 +91,16 @@ fun MessageListItem(
         Box(modifier = Modifier.weight(1f)) {
             SwipeToDismissBox(
                 state = dismissState,
-                backgroundContent = { SwipeBackground(dismissState.dismissDirection) },
+                enableDismissFromStartToEnd = swipeRightAction != SwipeAction.NONE,
+                enableDismissFromEndToStart = swipeLeftAction != SwipeAction.NONE,
+                backgroundContent = {
+                    val action = when (dismissState.dismissDirection) {
+                        SwipeToDismissBoxValue.StartToEnd -> swipeRightAction
+                        SwipeToDismissBoxValue.EndToStart -> swipeLeftAction
+                        SwipeToDismissBoxValue.Settled -> SwipeAction.NONE
+                    }
+                    SwipeBackground(action, dismissState.dismissDirection)
+                },
             ) {
                 val fontWeight = if (message.isRead) FontWeight.Normal else FontWeight.Bold
                 val senderLabel = message.fromPersonal?.takeIf { it.isNotBlank() }
@@ -94,7 +110,8 @@ fun MessageListItem(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(MaterialTheme.colorScheme.surface)
-                        .clickable(onClick = onClick),
+                        .clickable(onClick = onClick)
+                        .padding(vertical = 6.dp),
                     leadingContent = { SenderAvatar(senderLabel) },
                     headlineContent = {
                         val subjectText = message.subject?.takeIf { it.isNotBlank() } ?: "(no subject)"
@@ -121,40 +138,31 @@ fun MessageListItem(
     }
 }
 
+// Colors match the real app's list_list_swipe_bg_color (orange) / list_list_right_swipe_bg_color
+// (blue) tokens. TOGGLE_READ always renders orange/envelope, REMOVE always blue/trash —
+// consistent regardless of which physical direction each is currently bound to.
 @Composable
-private fun SwipeBackground(direction: SwipeToDismissBoxValue) {
-    val (color, icon, alignment) = when (direction) {
-        SwipeToDismissBoxValue.StartToEnd -> Triple(MaterialTheme.colorScheme.primary, Icons.Filled.Email, Alignment.CenterStart)
-        SwipeToDismissBoxValue.EndToStart -> Triple(MaterialTheme.colorScheme.error, Icons.Filled.Delete, Alignment.CenterEnd)
-        SwipeToDismissBoxValue.Settled -> Triple(Color.Transparent, null, Alignment.Center)
+private fun SwipeBackground(action: SwipeAction, direction: SwipeToDismissBoxValue) {
+    val alignment = when (direction) {
+        SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
+        SwipeToDismissBoxValue.EndToStart -> Alignment.CenterEnd
+        SwipeToDismissBoxValue.Settled -> Alignment.Center
+    }
+    val (color, icon) = when (action) {
+        SwipeAction.TOGGLE_READ -> SwipeActionOrange to Icons.Filled.Email
+        SwipeAction.REMOVE -> SwipeActionBlue to Icons.Filled.Delete
+        SwipeAction.NONE -> Color.Transparent to null
     }
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(color)
-            .padding(horizontal = 20.dp),
+            .padding(horizontal = 24.dp),
         contentAlignment = alignment,
     ) {
         if (icon != null) {
-            val onColor = if (color.luminance() > 0.5f) Color.Black else Color.White
-            Icon(icon, contentDescription = null, tint = onColor)
+            Icon(icon, contentDescription = null, tint = SwipeActionIconTint)
         }
-    }
-}
-
-@Composable
-private fun SenderAvatar(senderLabel: String) {
-    val color = colorForKey(senderLabel)
-    val initial = senderLabel.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "?"
-    Box(
-        modifier = Modifier
-            .size(40.dp)
-            .clip(CircleShape)
-            .background(color),
-        contentAlignment = Alignment.Center,
-    ) {
-        val onColor = if (color.luminance() > 0.5f) Color.Black else Color.White
-        Text(text = initial, color = onColor, fontWeight = FontWeight.Bold)
     }
 }
 

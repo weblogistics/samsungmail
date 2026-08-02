@@ -1,5 +1,6 @@
 package com.coursework.unifiedmail.ui.compose
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,7 +13,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -23,6 +23,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.coursework.unifiedmail.ui.components.FlatTextField
+import com.coursework.unifiedmail.ui.theme.SamsungComposeBackground
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,27 +54,29 @@ fun ComposeScreen(
         Column(
             modifier = Modifier
                 .padding(padding)
+                .background(SamsungComposeBackground)
                 .padding(16.dp)
                 .fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            OutlinedTextField(
+            FlatTextField(
                 value = state.to,
                 onValueChange = viewModel::onToChange,
                 label = { Text("To") },
                 placeholder = { Text("comma-separated addresses") },
                 modifier = Modifier.fillMaxWidth(),
             )
-            OutlinedTextField(
+            FlatTextField(
                 value = state.subject,
                 onValueChange = viewModel::onSubjectChange,
                 label = { Text("Subject") },
                 modifier = Modifier.fillMaxWidth(),
             )
-            OutlinedTextField(
+            FlatTextField(
                 value = state.body,
                 onValueChange = viewModel::onBodyChange,
                 label = { Text("Message") },
+                singleLine = false,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f, fill = true),

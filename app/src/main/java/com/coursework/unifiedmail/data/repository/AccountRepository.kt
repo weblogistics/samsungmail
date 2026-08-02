@@ -36,6 +36,8 @@ interface AccountRepository {
     suspend fun getAccount(accountId: String): AccountEntity?
     suspend fun getAllAccountsOnce(): List<AccountEntity>
     suspend fun addAccount(newAccount: NewAccount): AccountEntity
+    /** [newPassword] only updates the stored credential when non-blank — never clears it. */
+    suspend fun updateAccount(account: AccountEntity, newPassword: String?)
     suspend fun deleteAccount(account: AccountEntity)
     fun getPassword(accountId: String): String?
 }
@@ -70,6 +72,13 @@ class AccountRepositoryImpl @Inject constructor(
         credentialStore.savePassword(id, newAccount.password)
         accountDao.insert(entity)
         return entity
+    }
+
+    override suspend fun updateAccount(account: AccountEntity, newPassword: String?) {
+        if (!newPassword.isNullOrBlank()) {
+            credentialStore.savePassword(account.id, newPassword)
+        }
+        accountDao.update(account)
     }
 
     override suspend fun deleteAccount(account: AccountEntity) {

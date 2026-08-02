@@ -7,6 +7,8 @@ import com.coursework.unifiedmail.data.local.ConversationSummary
 import com.coursework.unifiedmail.data.local.MessageEntity
 import com.coursework.unifiedmail.data.repository.MailRepository
 import com.coursework.unifiedmail.data.repository.SyncOutcome
+import com.coursework.unifiedmail.data.settings.AppSettings
+import com.coursework.unifiedmail.data.settings.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -20,6 +22,7 @@ import javax.inject.Inject
 class InboxViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val mailRepository: MailRepository,
+    settingsRepository: SettingsRepository,
 ) : ViewModel() {
 
     val accountId: String = checkNotNull(savedStateHandle["accountId"])
@@ -27,11 +30,17 @@ class InboxViewModel @Inject constructor(
     val messages: StateFlow<List<ConversationSummary>> = mailRepository.observeInbox(accountId)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    val settings: StateFlow<AppSettings> = settingsRepository.settings
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppSettings())
+
     private val _isSyncing = MutableStateFlow(false)
     val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
 
     private val _syncError = MutableStateFlow<String?>(null)
     val syncError: StateFlow<String?> = _syncError.asStateFlow()
+
+    private val _lastSyncedAt = MutableStateFlow<Long?>(null)
+    val lastSyncedAt: StateFlow<Long?> = _lastSyncedAt.asStateFlow()
 
     init {
         sync()
@@ -46,6 +55,7 @@ class InboxViewModel @Inject constructor(
                 is SyncOutcome.Failure -> _syncError.value = result.reason
                 is SyncOutcome.Success -> Unit
             }
+            _lastSyncedAt.value = System.currentTimeMillis()
             _isSyncing.value = false
         }
     }

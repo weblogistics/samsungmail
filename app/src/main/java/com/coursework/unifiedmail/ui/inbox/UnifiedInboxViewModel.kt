@@ -8,8 +8,13 @@ import com.coursework.unifiedmail.data.local.MessageEntity
 import com.coursework.unifiedmail.data.repository.AccountRepository
 import com.coursework.unifiedmail.data.repository.MailRepository
 import com.coursework.unifiedmail.data.repository.SyncOutcome
+import com.coursework.unifiedmail.data.settings.AppSettings
+import com.coursework.unifiedmail.data.settings.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -24,7 +29,11 @@ import javax.inject.Inject
 class UnifiedInboxViewModel @Inject constructor(
     private val accountRepository: AccountRepository,
     private val mailRepository: MailRepository,
+    settingsRepository: SettingsRepository,
 ) : ViewModel() {
+
+    val settings: StateFlow<AppSettings> = settingsRepository.settings
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppSettings())
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -44,6 +53,13 @@ class UnifiedInboxViewModel @Inject constructor(
     private val _syncError = MutableStateFlow<String?>(null)
     val syncError: StateFlow<String?> = _syncError.asStateFlow()
 
+    private val _lastSyncedAt = MutableStateFlow<Long?>(null)
+    val lastSyncedAt: StateFlow<Long?> = _lastSyncedAt.asStateFlow()
+
+    init {
+        sync()
+    }
+
     fun onSearchQueryChange(query: String) {
         _searchQuery.value = query
     }
@@ -54,14 +70,21 @@ class UnifiedInboxViewModel @Inject constructor(
             _isSyncing.value = true
             _syncError.value = null
             val accountsToSync = accountRepository.getAllAccountsOnce()
-            val failures = mutableListOf<String>()
-            for (account in accountsToSync) {
-                val result = mailRepository.syncAccount(account.id)
-                if (result is SyncOutcome.Failure) {
-                    failures += "${account.displayName}: ${result.reason}"
-                }
+
+            // Concurrent, not sequential: one slow/unreachable account (a real possibility —
+            // dead server, DNS timeout) used to block the entire refresh for up to the full
+            // connect timeout per account, with zero feedback in the meantime.
+            val failures = coroutineScope {
+                accountsToSync
+                    .map { account -> async { account to mailRepository.syncAccount(account.id) } }
+                    .awaitAll()
+                    .mapNotNull { (account, result) ->
+                        (result as? SyncOutcome.Failure)?.let { "${account.displayName}: ${it.reason}" }
+                    }
             }
+
             _syncError.value = failures.takeIf { it.isNotEmpty() }?.joinToString("\n")
+            _lastSyncedAt.value = System.currentTimeMillis()
             _isSyncing.value = false
         }
     }

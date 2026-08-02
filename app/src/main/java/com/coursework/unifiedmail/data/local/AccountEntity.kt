@@ -22,5 +22,6 @@ data class AccountEntity(
     val smtpPort: Int,
     val smtpSecurity: MailSecurity,
     val isActive: Boolean = true,
+    val notificationsEnabled: Boolean = true,
     val createdAtEpochMillis: Long,
 )

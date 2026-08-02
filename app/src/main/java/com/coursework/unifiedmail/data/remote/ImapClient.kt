@@ -42,14 +42,26 @@ data class ImapFetchResult(
     val newLastSyncedUid: Long,
 )
 
+/** Behind an interface so MailRepository can be unit-tested against a fake instead of real IMAP. */
+interface ImapClient {
+    suspend fun fetchFolders(config: ImapConfig): Result<List<ImapFolderInfo>>
+
+    suspend fun fetchInboxMessages(
+        config: ImapConfig,
+        folderFullName: String,
+        sinceUid: Long,
+        initialFetchLimit: Int,
+    ): Result<ImapFetchResult>
+}
+
 /**
  * Thin wrapper over JavaMail's IMAP support. Every public function opens its own connection and
  * closes it before returning — fine at the sync frequencies and mailbox sizes this app targets;
  * a persistent/pooled connection (needed for IMAP IDLE push) is out of scope for now.
  */
-class ImapClient @Inject constructor() {
+class ImapClientImpl @Inject constructor() : ImapClient {
 
-    suspend fun fetchFolders(config: ImapConfig): Result<List<ImapFolderInfo>> = withContext(Dispatchers.IO) {
+    override suspend fun fetchFolders(config: ImapConfig): Result<List<ImapFolderInfo>> = withContext(Dispatchers.IO) {
         runCatching {
             val session = Session.getInstance(MailSessionFactory.imapProperties(config.security))
             val store = session.getStore(MailSessionFactory.imapProtocol(config.security))
@@ -69,7 +81,7 @@ class ImapClient @Inject constructor() {
      * recent [initialFetchLimit] messages are pulled, to avoid downloading years of mailbox
      * history the first time an account is added.
      */
-    suspend fun fetchInboxMessages(
+    override suspend fun fetchInboxMessages(
         config: ImapConfig,
         folderFullName: String,
         sinceUid: Long,
