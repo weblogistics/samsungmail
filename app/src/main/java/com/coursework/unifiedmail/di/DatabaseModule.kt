@@ -4,8 +4,11 @@ import android.content.Context
 import androidx.room.Room
 import com.coursework.unifiedmail.data.local.AccountDao
 import com.coursework.unifiedmail.data.local.AppDatabase
+import com.coursework.unifiedmail.data.local.AttachmentDao
+import com.coursework.unifiedmail.data.local.DraftDao
 import com.coursework.unifiedmail.data.local.FolderDao
 import com.coursework.unifiedmail.data.local.MessageDao
+import com.coursework.unifiedmail.data.local.OutboxAttachmentDao
 import com.coursework.unifiedmail.data.local.OutboxDao
 import dagger.Module
 import dagger.Provides
@@ -42,4 +45,13 @@ object DatabaseModule {
 
     @Provides
     fun provideOutboxDao(database: AppDatabase): OutboxDao = database.outboxDao()
+
+    @Provides
+    fun provideAttachmentDao(database: AppDatabase): AttachmentDao = database.attachmentDao()
+
+    @Provides
+    fun provideOutboxAttachmentDao(database: AppDatabase): OutboxAttachmentDao = database.outboxAttachmentDao()
+
+    @Provides
+    fun provideDraftDao(database: AppDatabase): DraftDao = database.draftDao()
 }

@@ -74,6 +74,7 @@ class MessageDaoTest {
         fromAddress = "from@example.com",
         fromPersonal = "From",
         toAddresses = null,
+        ccAddresses = null,
         sentDateEpochMillis = sentAt,
         receivedDateEpochMillis = sentAt,
         isRead = false,
@@ -81,6 +82,7 @@ class MessageDaoTest {
         hasAttachments = false,
         bodyPreview = "preview",
         bodyText = "body for $subject",
+        bodyHtml = null,
     )
 
     @Test
@@ -131,7 +133,7 @@ class MessageDaoTest {
             ),
         )
 
-        val results = messageDao.searchUnified("INBOX", "budget").first()
+        val results = messageDao.searchUnified("INBOX", "budget", hasAttachmentOnly = false, fromQuery = "").first()
 
         assertEquals(1, results.size)
         assertEquals("m1", results.first().latestMessage.id)

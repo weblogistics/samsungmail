@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.coursework.unifiedmail.data.local.MailSecurity
 import com.coursework.unifiedmail.data.remote.ImapConfig
 import com.coursework.unifiedmail.data.remote.MailConnectionTester
+import com.coursework.unifiedmail.data.remote.MailServerDefaults
 import com.coursework.unifiedmail.data.remote.MailTestResult
 import com.coursework.unifiedmail.data.remote.SmtpConfig
 import com.coursework.unifiedmail.data.repository.AccountRepository
@@ -56,15 +57,42 @@ class AddAccountViewModel @Inject constructor(
     val uiState: StateFlow<AddAccountUiState> = _uiState.asStateFlow()
 
     fun onDisplayNameChange(value: String) = _uiState.update { it.copy(displayName = value) }
-    fun onEmailAddressChange(value: String) = _uiState.update { it.copy(emailAddress = value) }
+
+    /**
+     * Best-effort autodiscovery: fills in host/port/security (and username, if still blank) from
+     * the email domain — see MailServerDefaults. Only while both host fields are still blank, so
+     * typing further into an address never clobbers host details the user already entered or
+     * edited by hand.
+     */
+    fun onEmailAddressChange(value: String) {
+        _uiState.update { current ->
+            if (current.imapHost.isNotBlank() || current.smtpHost.isNotBlank()) {
+                return@update current.copy(emailAddress = value)
+            }
+            val guess = MailServerDefaults.guessForEmail(value) ?: return@update current.copy(emailAddress = value)
+            current.copy(
+                emailAddress = value,
+                username = current.username.ifBlank { value },
+                imapHost = guess.imapHost,
+                imapPort = guess.imapPort.toString(),
+                imapSecurity = guess.imapSecurity,
+                smtpHost = guess.smtpHost,
+                smtpPort = guess.smtpPort.toString(),
+                smtpSecurity = guess.smtpSecurity,
+            )
+        }
+    }
+
     fun onUsernameChange(value: String) = _uiState.update { it.copy(username = value) }
     fun onPasswordChange(value: String) = _uiState.update { it.copy(password = value) }
     fun onImapHostChange(value: String) = _uiState.update { it.copy(imapHost = value) }
     fun onImapPortChange(value: String) = _uiState.update { it.copy(imapPort = value) }
-    fun onImapSecurityChange(value: MailSecurity) = _uiState.update { it.copy(imapSecurity = value) }
+    fun onImapSecurityChange(value: MailSecurity) =
+        _uiState.update { it.copy(imapSecurity = value, imapPort = MailServerDefaults.imapPort(value).toString()) }
     fun onSmtpHostChange(value: String) = _uiState.update { it.copy(smtpHost = value) }
     fun onSmtpPortChange(value: String) = _uiState.update { it.copy(smtpPort = value) }
-    fun onSmtpSecurityChange(value: MailSecurity) = _uiState.update { it.copy(smtpSecurity = value) }
+    fun onSmtpSecurityChange(value: MailSecurity) =
+        _uiState.update { it.copy(smtpSecurity = value, smtpPort = MailServerDefaults.smtpPort(value).toString()) }
 
     fun testConnection() {
         val state = _uiState.value

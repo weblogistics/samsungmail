@@ -1,12 +1,14 @@
 package com.coursework.unifiedmail.data.settings
 
 /**
- * Deliberately limited to what's actually backed by real behavior today — no move/archive/spam,
- * since there's no IMAP write support for those yet. REMOVE is local-cache-only (see
- * MailRepository.removeMessageLocally), not a server-side delete.
+ * REMOVE moves the message to the account's Trash folder on the server (a real IMAP move — see
+ * MailRepository.moveMessageToTrash), not just a local-cache removal. ARCHIVE is the same idea
+ * against the Archive folder. TOGGLE_FLAG stars/unstars (\Flagged) rather than deleting/moving.
  */
 enum class SwipeAction {
     NONE,
     TOGGLE_READ,
     REMOVE,
+    ARCHIVE,
+    TOGGLE_FLAG,
 }

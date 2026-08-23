@@ -3,12 +3,16 @@ package com.coursework.unifiedmail.ui.onboarding
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.coursework.unifiedmail.data.local.FolderEntity
 import com.coursework.unifiedmail.data.local.MailSecurity
 import com.coursework.unifiedmail.data.remote.ImapConfig
 import com.coursework.unifiedmail.data.remote.MailConnectionTester
+import com.coursework.unifiedmail.data.remote.MailServerDefaults
 import com.coursework.unifiedmail.data.remote.MailTestResult
 import com.coursework.unifiedmail.data.remote.SmtpConfig
 import com.coursework.unifiedmail.data.repository.AccountRepository
+import com.coursework.unifiedmail.data.repository.MailRepository
+import com.coursework.unifiedmail.data.repository.SyncOutcome
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -30,12 +34,21 @@ data class EditAccountUiState(
     val smtpPort: String = "465",
     val smtpSecurity: MailSecurity = MailSecurity.SSL_TLS,
     val notificationsEnabled: Boolean = true,
+    val folders: List<FolderEntity> = emptyList(),
+    // Server folder fullName, or null for "auto-detect" (MailRepository's name-based guessing).
+    val trashFolderFullName: String? = null,
+    val archiveFolderFullName: String? = null,
+    val spamFolderFullName: String? = null,
+    val signature: String = "",
     val connectionStatus: ConnectionCheckStatus = ConnectionCheckStatus.IDLE,
     val connectionMessage: String? = null,
     val isSaving: Boolean = false,
     val saved: Boolean = false,
     val deleted: Boolean = false,
     val showDeleteConfirmation: Boolean = false,
+    val isResyncing: Boolean = false,
+    val resyncMessage: String? = null,
+    val isEmptyingTrash: Boolean = false,
 ) {
     val canSave: Boolean
         get() = !isLoading &&
@@ -53,6 +66,7 @@ class EditAccountViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val accountRepository: AccountRepository,
     private val mailConnectionTester: MailConnectionTester,
+    private val mailRepository: MailRepository,
 ) : ViewModel() {
 
     private val accountId: String = checkNotNull(savedStateHandle["accountId"])
@@ -83,9 +97,16 @@ class EditAccountViewModel @Inject constructor(
                         smtpPort = account.smtpPort.toString(),
                         smtpSecurity = account.smtpSecurity,
                         notificationsEnabled = account.notificationsEnabled,
+                        trashFolderFullName = account.trashFolderFullName,
+                        archiveFolderFullName = account.archiveFolderFullName,
+                        spamFolderFullName = account.spamFolderFullName,
+                        signature = account.signature.orEmpty(),
                     )
                 }
             }
+            // Already synced by normal use (this is edit, not first-time setup) — just reads the
+            // cached list, no network round trip.
+            _uiState.update { it.copy(folders = mailRepository.getFolders(accountId)) }
         }
     }
 
@@ -95,11 +116,17 @@ class EditAccountViewModel @Inject constructor(
     fun onPasswordChange(value: String) = _uiState.update { it.copy(password = value) }
     fun onImapHostChange(value: String) = _uiState.update { it.copy(imapHost = value) }
     fun onImapPortChange(value: String) = _uiState.update { it.copy(imapPort = value) }
-    fun onImapSecurityChange(value: MailSecurity) = _uiState.update { it.copy(imapSecurity = value) }
+    fun onImapSecurityChange(value: MailSecurity) =
+        _uiState.update { it.copy(imapSecurity = value, imapPort = MailServerDefaults.imapPort(value).toString()) }
     fun onSmtpHostChange(value: String) = _uiState.update { it.copy(smtpHost = value) }
     fun onSmtpPortChange(value: String) = _uiState.update { it.copy(smtpPort = value) }
-    fun onSmtpSecurityChange(value: MailSecurity) = _uiState.update { it.copy(smtpSecurity = value) }
+    fun onSmtpSecurityChange(value: MailSecurity) =
+        _uiState.update { it.copy(smtpSecurity = value, smtpPort = MailServerDefaults.smtpPort(value).toString()) }
     fun onNotificationsEnabledChange(value: Boolean) = _uiState.update { it.copy(notificationsEnabled = value) }
+    fun onTrashFolderChange(fullName: String?) = _uiState.update { it.copy(trashFolderFullName = fullName) }
+    fun onArchiveFolderChange(fullName: String?) = _uiState.update { it.copy(archiveFolderFullName = fullName) }
+    fun onSpamFolderChange(fullName: String?) = _uiState.update { it.copy(spamFolderFullName = fullName) }
+    fun onSignatureChange(value: String) = _uiState.update { it.copy(signature = value) }
 
     fun requestDelete() = _uiState.update { it.copy(showDeleteConfirmation = true) }
     fun cancelDelete() = _uiState.update { it.copy(showDeleteConfirmation = false) }
@@ -174,6 +201,10 @@ class EditAccountViewModel @Inject constructor(
                 smtpPort = smtpPort,
                 smtpSecurity = state.smtpSecurity,
                 notificationsEnabled = state.notificationsEnabled,
+                trashFolderFullName = state.trashFolderFullName,
+                archiveFolderFullName = state.archiveFolderFullName,
+                spamFolderFullName = state.spamFolderFullName,
+                signature = state.signature.takeIf { it.isNotBlank() },
             )
             accountRepository.updateAccount(updated, newPassword = state.password.takeIf { it.isNotBlank() })
             _uiState.update { it.copy(isSaving = false, saved = true) }
@@ -183,8 +214,45 @@ class EditAccountViewModel @Inject constructor(
     fun confirmDelete() {
         viewModelScope.launch {
             val existing = accountRepository.getAccount(accountId) ?: return@launch
-            accountRepository.deleteAccount(existing)
+            mailRepository.deleteAccountAndCache(existing)
             _uiState.update { it.copy(showDeleteConfirmation = false, deleted = true) }
+        }
+    }
+
+    /**
+     * Forces every cached folder's next sync to be a full re-fetch instead of the usual UID
+     * delta — the only way to backfill data (e.g. attachment metadata) added to the schema after
+     * a message was already cached, since normal sync never re-fetches what it already has. Only
+     * the Inbox is synced immediately here for feedback; other folders pick up the reset next
+     * time they're opened.
+     */
+    fun forceFullResync() {
+        if (_uiState.value.isResyncing) return
+        _uiState.update { it.copy(isResyncing = true, resyncMessage = null) }
+        viewModelScope.launch {
+            mailRepository.resetSyncProgress(accountId)
+            val message = when (val outcome = mailRepository.syncAccount(accountId)) {
+                is SyncOutcome.Success -> "Refreshed Inbox — re-downloaded ${outcome.newMessageCount} messages"
+                is SyncOutcome.Failure -> outcome.reason
+            }
+            _uiState.update { it.copy(isResyncing = false, resyncMessage = message) }
+        }
+    }
+
+    /**
+     * Also reachable from the Trash folder's own toolbar (only shown while actually viewing it) —
+     * duplicated here since that entry point turned out to be too easy to miss: it requires
+     * navigating drawer → account → folder list → Trash before it appears at all.
+     */
+    fun emptyTrash() {
+        if (_uiState.value.isEmptyingTrash) return
+        _uiState.update { it.copy(isEmptyingTrash = true, resyncMessage = null) }
+        viewModelScope.launch {
+            val message = when (val outcome = mailRepository.emptyTrash(accountId)) {
+                is SyncOutcome.Success -> "Trash emptied"
+                is SyncOutcome.Failure -> outcome.reason
+            }
+            _uiState.update { it.copy(isEmptyingTrash = false, resyncMessage = message) }
         }
     }
 }

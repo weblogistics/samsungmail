@@ -6,16 +6,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -31,23 +30,38 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.coursework.unifiedmail.data.settings.AppSettings.Companion.ALL_MAIL_SYNC_WINDOW_DAYS
+import com.coursework.unifiedmail.data.settings.AppSettings.Companion.ON_ARRIVAL_MINUTES
+import com.coursework.unifiedmail.data.settings.ListDensity
+import com.coursework.unifiedmail.data.settings.MessageTextSize
 import com.coursework.unifiedmail.data.settings.SwipeAction
+import com.coursework.unifiedmail.data.settings.ThemeMode
+import com.coursework.unifiedmail.ui.components.RadioOptionDialog
 import com.coursework.unifiedmail.ui.components.SectionLabel
 
-private val SYNC_INTERVAL_OPTIONS = listOf(15L, 30L, 60L)
+private val SYNC_INTERVAL_OPTIONS = listOf(ON_ARRIVAL_MINUTES, 1L, 5L, 10L, 15L, 30L, 60L)
+private val SYNC_WINDOW_OPTIONS = listOf(7, 30, 90, 365, ALL_MAIL_SYNC_WINDOW_DAYS)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewModel()) {
     val settings by viewModel.settings.collectAsState()
+    val accounts by viewModel.accounts.collectAsState()
     var showSwipeRightDialog by remember { mutableStateOf(false) }
     var showSwipeLeftDialog by remember { mutableStateOf(false) }
     var showSyncIntervalDialog by remember { mutableStateOf(false) }
+    var showThemeDialog by remember { mutableStateOf(false) }
+    var showDefaultViewDialog by remember { mutableStateOf(false) }
+    var showSyncWindowDialog by remember { mutableStateOf(false) }
+    var showListDensityDialog by remember { mutableStateOf(false) }
+    var showTextSizeDialog by remember { mutableStateOf(false) }
 
     if (showSwipeRightDialog) {
-        SwipeActionPickerDialog(
+        RadioOptionDialog(
             title = "Swipe right",
-            current = settings.swipeRightAction,
+            options = SwipeAction.entries,
+            selected = settings.swipeRightAction,
+            labelFor = { it.displayLabel() },
             onDismiss = { showSwipeRightDialog = false },
             onSelect = {
                 viewModel.setSwipeRightAction(it)
@@ -56,9 +70,11 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
         )
     }
     if (showSwipeLeftDialog) {
-        SwipeActionPickerDialog(
+        RadioOptionDialog(
             title = "Swipe left",
-            current = settings.swipeLeftAction,
+            options = SwipeAction.entries,
+            selected = settings.swipeLeftAction,
+            labelFor = { it.displayLabel() },
             onDismiss = { showSwipeLeftDialog = false },
             onSelect = {
                 viewModel.setSwipeLeftAction(it)
@@ -67,29 +83,81 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
         )
     }
     if (showSyncIntervalDialog) {
-        AlertDialog(
-            onDismissRequest = { showSyncIntervalDialog = false },
-            title = { Text("Sync interval") },
-            text = {
-                Column {
-                    SYNC_INTERVAL_OPTIONS.forEach { minutes ->
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    viewModel.setSyncIntervalMinutes(minutes)
-                                    showSyncIntervalDialog = false
-                                },
-                        ) {
-                            RadioButton(selected = minutes == settings.syncIntervalMinutes, onClick = null)
-                            Text("$minutes minutes")
-                        }
-                    }
-                }
+        RadioOptionDialog(
+            title = "Sync interval",
+            options = SYNC_INTERVAL_OPTIONS,
+            selected = settings.syncIntervalMinutes,
+            labelFor = { it.toSyncIntervalLabel() },
+            onDismiss = { showSyncIntervalDialog = false },
+            onSelect = {
+                viewModel.setSyncIntervalMinutes(it)
+                showSyncIntervalDialog = false
             },
-            confirmButton = {
-                TextButton(onClick = { showSyncIntervalDialog = false }) { Text("Cancel") }
+        )
+    }
+    if (showThemeDialog) {
+        RadioOptionDialog(
+            title = "Theme",
+            options = ThemeMode.entries,
+            selected = settings.themeMode,
+            labelFor = { it.displayLabel() },
+            onDismiss = { showThemeDialog = false },
+            onSelect = {
+                viewModel.setThemeMode(it)
+                showThemeDialog = false
+            },
+        )
+    }
+    if (showSyncWindowDialog) {
+        RadioOptionDialog(
+            title = "Sync window",
+            options = SYNC_WINDOW_OPTIONS,
+            selected = settings.syncWindowDays,
+            labelFor = { it.toSyncWindowLabel() },
+            onDismiss = { showSyncWindowDialog = false },
+            onSelect = {
+                viewModel.setSyncWindowDays(it)
+                showSyncWindowDialog = false
+            },
+        )
+    }
+    if (showListDensityDialog) {
+        RadioOptionDialog(
+            title = "List density",
+            options = ListDensity.entries,
+            selected = settings.listDensity,
+            labelFor = { it.displayLabel() },
+            onDismiss = { showListDensityDialog = false },
+            onSelect = {
+                viewModel.setListDensity(it)
+                showListDensityDialog = false
+            },
+        )
+    }
+    if (showTextSizeDialog) {
+        RadioOptionDialog(
+            title = "Message text size",
+            options = MessageTextSize.entries,
+            selected = settings.messageTextSize,
+            labelFor = { it.displayLabel() },
+            onDismiss = { showTextSizeDialog = false },
+            onSelect = {
+                viewModel.setMessageTextSize(it)
+                showTextSizeDialog = false
+            },
+        )
+    }
+    if (showDefaultViewDialog) {
+        // null represents Unified Inbox — listed first, ahead of individual accounts.
+        RadioOptionDialog(
+            title = "Default view",
+            options = listOf(null) + accounts.map { it.id },
+            selected = settings.defaultViewAccountId,
+            labelFor = { id -> accounts.firstOrNull { it.id == id }?.displayName ?: "Unified inbox" },
+            onDismiss = { showDefaultViewDialog = false },
+            onSelect = {
+                viewModel.setDefaultViewAccountId(it)
+                showDefaultViewDialog = false
             },
         )
     }
@@ -106,7 +174,7 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
             )
         },
     ) { padding ->
-        Column(modifier = Modifier.padding(padding)) {
+        Column(modifier = Modifier.padding(padding).verticalScroll(rememberScrollState())) {
             SectionLabel(text = "Swipe actions", modifier = Modifier.padding(16.dp))
             SettingRow(
                 label = "Swipe right",
@@ -123,8 +191,36 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
             SectionLabel(text = "Sync", modifier = Modifier.padding(16.dp))
             SettingRow(
                 label = "Sync interval",
-                value = "${settings.syncIntervalMinutes} minutes",
+                value = settings.syncIntervalMinutes.toSyncIntervalLabel(),
                 onClick = { showSyncIntervalDialog = true },
+            )
+            SettingRow(
+                label = "Sync window",
+                value = settings.syncWindowDays.toSyncWindowLabel(),
+                onClick = { showSyncWindowDialog = true },
+            )
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            SectionLabel(text = "Display", modifier = Modifier.padding(16.dp))
+            SettingRow(
+                label = "Theme",
+                value = settings.themeMode.displayLabel(),
+                onClick = { showThemeDialog = true },
+            )
+            SettingRow(
+                label = "Default view",
+                value = accounts.firstOrNull { it.id == settings.defaultViewAccountId }?.displayName ?: "Unified inbox",
+                onClick = { showDefaultViewDialog = true },
+            )
+            SettingRow(
+                label = "List density",
+                value = settings.listDensity.displayLabel(),
+                onClick = { showListDensityDialog = true },
+            )
+            SettingRow(
+                label = "Message text size",
+                value = settings.messageTextSize.displayLabel(),
+                onClick = { showTextSizeDialog = true },
             )
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
@@ -154,39 +250,40 @@ private fun SettingRow(label: String, value: String, onClick: () -> Unit) {
     )
 }
 
-@Composable
-private fun SwipeActionPickerDialog(
-    title: String,
-    current: SwipeAction,
-    onDismiss: () -> Unit,
-    onSelect: (SwipeAction) -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
-            Column {
-                SwipeAction.entries.forEach { action ->
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onSelect(action) },
-                    ) {
-                        RadioButton(selected = action == current, onClick = null)
-                        Text(action.displayLabel())
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
-        },
-    )
-}
-
 private fun SwipeAction.displayLabel(): String = when (this) {
     SwipeAction.NONE -> "Off"
     SwipeAction.TOGGLE_READ -> "Mark read/unread"
-    SwipeAction.REMOVE -> "Remove from device"
+    SwipeAction.REMOVE -> "Move to trash"
+    SwipeAction.ARCHIVE -> "Archive"
+    SwipeAction.TOGGLE_FLAG -> "Star/unstar"
+}
+
+private fun ThemeMode.displayLabel(): String = when (this) {
+    ThemeMode.LIGHT -> "Light"
+    ThemeMode.DARK -> "Dark"
+    ThemeMode.SYSTEM -> "System default"
+}
+
+private fun ListDensity.displayLabel(): String = when (this) {
+    ListDensity.COMFORTABLE -> "Comfortable"
+    ListDensity.COMPACT -> "Compact"
+}
+
+private fun MessageTextSize.displayLabel(): String = when (this) {
+    MessageTextSize.SMALL -> "Small"
+    MessageTextSize.MEDIUM -> "Medium"
+    MessageTextSize.LARGE -> "Large"
+    MessageTextSize.EXTRA_LARGE -> "Extra large"
+}
+
+private fun Long.toSyncIntervalLabel(): String = when {
+    this == ON_ARRIVAL_MINUTES -> "On arrival"
+    this == 1L -> "1 minute"
+    else -> "$this minutes"
+}
+
+private fun Int.toSyncWindowLabel(): String = when {
+    this == ALL_MAIL_SYNC_WINDOW_DAYS -> "All mail"
+    this == 365 -> "1 year"
+    else -> "$this days"
 }

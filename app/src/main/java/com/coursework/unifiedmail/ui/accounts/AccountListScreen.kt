@@ -8,10 +8,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -32,12 +34,22 @@ import com.coursework.unifiedmail.data.local.AccountEntity
 fun AccountListScreen(
     onAddAccountClick: () -> Unit,
     onAccountClick: (accountId: String) -> Unit,
+    onBack: () -> Unit,
     viewModel: AccountListViewModel = hiltViewModel(),
 ) {
     val accounts by viewModel.accounts.collectAsState()
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text(stringResource(R.string.accounts_title)) }) },
+        topBar = {
+            TopAppBar(
+                title = { Text(stringResource(R.string.accounts_title)) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                    }
+                },
+            )
+        },
         floatingActionButton = {
             FloatingActionButton(onClick = onAddAccountClick) {
                 Icon(Icons.Filled.Add, contentDescription = stringResource(R.string.add_account_title))

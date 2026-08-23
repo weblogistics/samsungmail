@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Drafts
 import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
@@ -28,6 +29,7 @@ fun AppDrawerContent(
     accounts: List<AccountEntity>,
     onCombinedViewClick: () -> Unit,
     onAccountClick: (accountId: String) -> Unit,
+    onDraftsClick: () -> Unit,
     onManageAccountsClick: () -> Unit,
     onSettingsClick: () -> Unit,
 ) {
@@ -44,6 +46,13 @@ fun AppDrawerContent(
             selected = true,
             icon = { Icon(Icons.Filled.Inbox, contentDescription = null) },
             onClick = onCombinedViewClick,
+            modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+        )
+        NavigationDrawerItem(
+            label = { Text("Drafts") },
+            selected = false,
+            icon = { Icon(Icons.Filled.Drafts, contentDescription = null) },
+            onClick = onDraftsClick,
             modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
         )
 

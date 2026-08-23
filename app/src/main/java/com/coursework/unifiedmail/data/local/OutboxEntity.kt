@@ -18,6 +18,9 @@ data class OutboxEntity(
     val bccAddresses: String?,
     val subject: String,
     val body: String,
+    // The rich-text HTML sibling of `body` — null sends plain-text-only (defensive fallback;
+    // not expected once compose always populates it). See SmtpSenderImpl.
+    val bodyHtml: String? = null,
     val inReplyToMessageIdHeader: String?,
     val referencesHeader: String?,
     val status: OutboxStatus,

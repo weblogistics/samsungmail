@@ -1,0 +1,50 @@
+package com.coursework.unifiedmail.ui.message
+
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.viewinterop.AndroidView
+
+/**
+ * Renders a message's raw HTML. JavaScript stays permanently disabled — the actual security
+ * boundary here, not just a default — and remote images are blocked unless [showRemoteContent]
+ * is true (the "Show remote content" toggle: privacy/tracking-pixel protection, same default
+ * every real email client ships with). Tapping a link opens the system browser instead of
+ * navigating this WebView away from the message.
+ */
+@Composable
+fun HtmlMessageBody(html: String, showRemoteContent: Boolean, textZoomPercent: Int = 100, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    AndroidView(
+        modifier = modifier.fillMaxSize(),
+        factory = {
+            WebView(context).apply {
+                settings.javaScriptEnabled = false
+                settings.loadsImagesAutomatically = true
+                settings.blockNetworkImage = !showRemoteContent
+                settings.textZoom = textZoomPercent
+                webViewClient = object : WebViewClient() {
+                    override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+                        return try {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, request.url))
+                            true
+                        } catch (e: ActivityNotFoundException) {
+                            false
+                        }
+                    }
+                }
+            }
+        },
+        update = { webView ->
+            webView.settings.blockNetworkImage = !showRemoteContent
+            webView.settings.textZoom = textZoomPercent
+            webView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)
+        },
+    )
+}
