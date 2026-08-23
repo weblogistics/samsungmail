@@ -24,6 +24,17 @@ data class AppSettings(
     // tracking how often each destination has been chosen via "Move to" — independent of
     // recency, so a folder used constantly-but-not-recently still surfaces.
     val moveFolderUseCounts: List<String> = emptyList(),
+    // DUAL_PANE_DISABLED_WIDTH_DP means never show the list+detail split, regardless of screen
+    // width — see rememberIsWideScreen().
+    val dualPaneMinWidthDp: Int = DEFAULT_DUAL_PANE_MIN_WIDTH_DP,
+    // The list pane's width in the two-pane layout — user-draggable (see SplitPaneDivider),
+    // persisted here so it survives navigating away and back / restarting the app.
+    val listPaneWidthDp: Int = DEFAULT_LIST_PANE_WIDTH_DP,
+    // How long the "Undo" snackbar after a move/archive/delete stays up before auto-dismissing.
+    val undoDurationSeconds: Int = DEFAULT_UNDO_DURATION_SECONDS,
+    // Whether related messages (same IMAP thread — see ConversationThreading) are grouped into
+    // one row in the message list. Off shows every message as its own row instead.
+    val threadedConversations: Boolean = true,
 ) {
     val isPushSync: Boolean get() = syncIntervalMinutes == ON_ARRIVAL_MINUTES
 
@@ -54,5 +65,11 @@ data class AppSettings(
         const val ON_ARRIVAL_MINUTES = 0L
         const val ALL_MAIL_SYNC_WINDOW_DAYS = 0
         const val MOVE_FOLDER_COUNT_SEPARATOR = "@@"
+        const val DUAL_PANE_DISABLED_WIDTH_DP = 0
+        const val DEFAULT_DUAL_PANE_MIN_WIDTH_DP = 600
+        const val DEFAULT_LIST_PANE_WIDTH_DP = 400
+        // Matches Material's own SnackbarDuration.Long baseline (10s), which this setting
+        // replaces — see the showSnackbarFor() helper used for the undo snackbar.
+        const val DEFAULT_UNDO_DURATION_SECONDS = 10
     }
 }

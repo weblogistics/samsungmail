@@ -12,19 +12,24 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
-import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -97,6 +102,29 @@ fun ComposeScreen(
                 actions = {
                     IconButton(onClick = { attachmentPicker.launch(arrayOf("*/*")) }) {
                         Icon(Icons.Filled.AttachFile, contentDescription = "Attach files")
+                    }
+                    // A full-width bottom button here gets covered by the IME the moment the
+                    // user is actually typing — a compact top-right action stays reachable
+                    // regardless of keyboard state.
+                    FilledIconButton(
+                        onClick = viewModel::send,
+                        enabled = state.canSend,
+                        colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary),
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                    ) {
+                        if (state.isSending) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                strokeWidth = 2.dp,
+                            )
+                        } else {
+                            Icon(
+                                Icons.AutoMirrored.Filled.Send,
+                                contentDescription = "Send",
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                            )
+                        }
                     }
                 },
             )
@@ -192,7 +220,7 @@ fun ComposeScreen(
                 onInsertLinkClick = viewModel::requestInsertLink,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(if (state.quotedHtml != null) 0.5f else 1f, fill = true),
+                    .weight(if (state.quotedHtml != null || state.quotedText != null) 0.5f else 1f, fill = true),
             )
 
             // Read-only — the rich-text editor above can't represent the original message's own
@@ -217,16 +245,24 @@ fun ComposeScreen(
                 )
             }
 
-            state.error?.let { message ->
-                Text(text = message, color = MaterialTheme.colorScheme.error)
+            // Read-only, same reasoning as the forwarded-message block above — a reply's quoted
+            // original is kept out of the editable body so a horizontal rule can separate the new
+            // message from the previous one, instead of the two running together as one blob.
+            state.quotedText?.let { quotedText ->
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                Text(
+                    text = quotedText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(0.5f, fill = true)
+                        .verticalScroll(rememberScrollState()),
+                )
             }
 
-            Button(
-                onClick = viewModel::send,
-                enabled = state.canSend,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(if (state.isSending) "Sending…" else "Send")
+            state.error?.let { message ->
+                Text(text = message, color = MaterialTheme.colorScheme.error)
             }
         }
     }

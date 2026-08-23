@@ -66,6 +66,18 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { settingsRepository.setMessageTextSize(size) }
     }
 
+    fun setDualPaneMinWidthDp(widthDp: Int) {
+        viewModelScope.launch { settingsRepository.setDualPaneMinWidthDp(widthDp) }
+    }
+
+    fun setUndoDurationSeconds(seconds: Int) {
+        viewModelScope.launch { settingsRepository.setUndoDurationSeconds(seconds) }
+    }
+
+    fun setThreadedConversations(enabled: Boolean) {
+        viewModelScope.launch { settingsRepository.setThreadedConversations(enabled) }
+    }
+
     fun setSyncIntervalMinutes(minutes: Long) {
         viewModelScope.launch {
             settingsRepository.setSyncIntervalMinutes(minutes)

@@ -96,6 +96,15 @@ fun MailNavGraph(startAccountId: String? = null, navController: NavHostControlle
                     navController.navigate(Routes.thread(accountId, MailRepository.INBOX_FOLDER_KEY, conversationId))
                 },
                 onComposeClick = { accountId -> navController.navigate(Routes.composeNew(accountId)) },
+                onReplyClick = { accountId, folderKey, uid ->
+                    navController.navigate(Routes.composeReply(accountId, folderKey, uid))
+                },
+                onReplyAllClick = { accountId, folderKey, uid ->
+                    navController.navigate(Routes.composeReplyAll(accountId, folderKey, uid))
+                },
+                onForwardClick = { accountId, folderKey, uid ->
+                    navController.navigate(Routes.composeForward(accountId, folderKey, uid))
+                },
             )
         }
         composable(Routes.SETTINGS) {
@@ -157,6 +166,15 @@ fun MailNavGraph(startAccountId: String? = null, navController: NavHostControlle
                     navController.navigate(Routes.thread(accountId, folderKey, conversationId))
                 },
                 onComposeClick = { navController.navigate(Routes.composeNew(accountId)) },
+                onReplyClick = { replyAccountId, folderKey, uid ->
+                    navController.navigate(Routes.composeReply(replyAccountId, folderKey, uid))
+                },
+                onReplyAllClick = { replyAccountId, folderKey, uid ->
+                    navController.navigate(Routes.composeReplyAll(replyAccountId, folderKey, uid))
+                },
+                onForwardClick = { replyAccountId, folderKey, uid ->
+                    navController.navigate(Routes.composeForward(replyAccountId, folderKey, uid))
+                },
             )
         }
         composable(

@@ -18,6 +18,10 @@ data class DraftEntity(
     // since the rich-text editor (and so bodyHtml above) can't represent it. See
     // ComposeViewModel.prefillFromSource/send.
     val quotedHtml: String? = null,
+    // Set only for a reply/reply-all — the quoted original, kept out of bodyHtml/bodyRuns so it
+    // renders read-only below a divider (see ComposeScreen) instead of as editable text mixed in
+    // with the new message. See ComposeViewModel.prefillFromSource/send.
+    val quotedText: String? = null,
     val inReplyToMessageIdHeader: String?,
     val referencesHeader: String?,
     val updatedAtEpochMillis: Long,

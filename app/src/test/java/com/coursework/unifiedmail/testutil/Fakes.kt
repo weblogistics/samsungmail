@@ -318,8 +318,8 @@ class FakeMessageDao : MessageDao {
         }
     }
 
-    override fun observeConversations(accountId: String, folderName: String): Flow<List<ConversationSummary>> =
-        flowOf(toConversations(messages.filter { it.accountId == accountId && it.folderName == folderName }))
+    override fun observeConversations(accountId: String, folderName: String, threaded: Boolean): Flow<List<ConversationSummary>> =
+        flowOf(toConversations(messages.filter { it.accountId == accountId && it.folderName == folderName }, threaded))
 
     override fun observeConversationMessages(accountId: String, folderName: String, conversationId: String): Flow<List<MessageEntity>> =
         flowOf(
@@ -328,8 +328,8 @@ class FakeMessageDao : MessageDao {
                 .sortedBy { it.sentDateEpochMillis ?: it.receivedDateEpochMillis ?: 0L },
         )
 
-    override fun observeUnifiedConversations(folderName: String): Flow<List<ConversationSummary>> =
-        flowOf(toConversations(messages.filter { it.folderName == folderName }))
+    override fun observeUnifiedConversations(folderName: String, threaded: Boolean): Flow<List<ConversationSummary>> =
+        flowOf(toConversations(messages.filter { it.folderName == folderName }, threaded))
 
     override fun searchUnified(
         folderName: String,
@@ -338,6 +338,7 @@ class FakeMessageDao : MessageDao {
         unreadOnly: Boolean,
         flaggedOnly: Boolean,
         fromQuery: String,
+        threaded: Boolean,
     ): Flow<List<ConversationSummary>> =
         flowOf(
             toConversations(
@@ -349,6 +350,7 @@ class FakeMessageDao : MessageDao {
                         (!flaggedOnly || message.isFlagged) &&
                         (fromQuery.isEmpty() || message.fromAddress?.contains(fromQuery, ignoreCase = true) == true)
                 },
+                threaded,
             ),
         )
 
@@ -359,6 +361,7 @@ class FakeMessageDao : MessageDao {
         hasAttachmentOnly: Boolean,
         unreadOnly: Boolean,
         flaggedOnly: Boolean,
+        threaded: Boolean,
     ): Flow<List<ConversationSummary>> =
         flowOf(
             toConversations(
@@ -369,11 +372,12 @@ class FakeMessageDao : MessageDao {
                         (!unreadOnly || !message.isRead) &&
                         (!flaggedOnly || message.isFlagged)
                 },
+                threaded,
             ),
         )
 
-    private fun toConversations(list: List<MessageEntity>): List<ConversationSummary> =
-        list.groupBy { it.conversationId }.map { (_, group) ->
+    private fun toConversations(list: List<MessageEntity>, threaded: Boolean = true): List<ConversationSummary> =
+        list.groupBy { if (threaded) it.conversationId else it.id }.map { (_, group) ->
             val latest = group.maxBy { it.sentDateEpochMillis ?: it.receivedDateEpochMillis ?: 0L }
             ConversationSummary(latest, group.size)
         }

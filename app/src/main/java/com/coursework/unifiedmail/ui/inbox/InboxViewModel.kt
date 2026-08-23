@@ -22,7 +22,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -58,14 +60,19 @@ class InboxViewModel @Inject constructor(
 
     private val filters = combine(_hasAttachmentFilter, _unreadOnlyFilter, _flaggedOnlyFilter, ::Filters)
 
+    // Read directly off the repository rather than the `settings` StateFlow below to avoid any
+    // dependency on property initialization order between the two.
+    private val threadedConversations = settingsRepository.settings.map { it.threadedConversations }.distinctUntilChanged()
+
     val messages: StateFlow<List<ConversationSummary>> = _searchQuery
         // Debounced only for the query that actually hits the database — searchQuery itself
         // (bound directly to the text field) stays undebounced so typing never feels laggy.
         .debounce(SEARCH_DEBOUNCE_MS)
         .combine(filters) { query, filterState -> query to filterState }
-        .flatMapLatest { (query, filterState) ->
+        .combine(threadedConversations) { (query, filterState), threaded -> Triple(query, filterState, threaded) }
+        .flatMapLatest { (query, filterState, threaded) ->
             if (query.isBlank() && !filterState.isAnyActive) {
-                mailRepository.observeFolder(accountId, folderKey)
+                mailRepository.observeFolder(accountId, folderKey, threaded)
             } else {
                 mailRepository.searchFolder(
                     accountId,
@@ -74,6 +81,7 @@ class InboxViewModel @Inject constructor(
                     hasAttachmentOnly = filterState.hasAttachmentOnly,
                     unreadOnly = filterState.unreadOnly,
                     flaggedOnly = filterState.flaggedOnly,
+                    threaded = threaded,
                 )
             }
         }
@@ -81,6 +89,10 @@ class InboxViewModel @Inject constructor(
 
     val settings: StateFlow<AppSettings> = settingsRepository.settings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppSettings())
+
+    fun setListPaneWidthDp(widthDp: Int) {
+        viewModelScope.launch { settingsRepository.setListPaneWidthDp(widthDp) }
+    }
 
     private val _isSyncing = MutableStateFlow(false)
     val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()

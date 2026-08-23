@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
@@ -58,14 +60,26 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.navigation.compose.rememberNavController
 import com.coursework.unifiedmail.R
+import com.coursework.unifiedmail.data.local.ConversationSummary
 import com.coursework.unifiedmail.data.repository.MailRepository
+import com.coursework.unifiedmail.data.settings.AppSettings
 import com.coursework.unifiedmail.ui.components.EmptyState
 import com.coursework.unifiedmail.ui.components.LastSyncedText
+import com.coursework.unifiedmail.ui.components.MAX_LIST_PANE_WIDTH_DP
+import com.coursework.unifiedmail.ui.components.MIN_LIST_PANE_WIDTH_DP
 import com.coursework.unifiedmail.ui.components.MessageFilterButton
 import com.coursework.unifiedmail.ui.components.MessageListSkeleton
 import com.coursework.unifiedmail.ui.components.MoveToFolderDialog
+import com.coursework.unifiedmail.ui.components.SplitPaneDivider
 import com.coursework.unifiedmail.ui.components.rememberIsScrollingUp
+import com.coursework.unifiedmail.ui.components.rememberIsWideScreen
+import com.coursework.unifiedmail.ui.components.showSnackbarFor
+import com.coursework.unifiedmail.ui.nav.MessageDetailPane
+import com.coursework.unifiedmail.ui.nav.detailPaneMessageRoute
+import com.coursework.unifiedmail.ui.nav.detailPaneThreadRoute
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,6 +88,9 @@ fun InboxScreen(
     onMessageClick: (folderKey: String, uid: Long) -> Unit,
     onThreadClick: (folderKey: String, conversationId: String) -> Unit,
     onComposeClick: () -> Unit,
+    onReplyClick: (accountId: String, folderKey: String, uid: Long) -> Unit,
+    onReplyAllClick: (accountId: String, folderKey: String, uid: Long) -> Unit,
+    onForwardClick: (accountId: String, folderKey: String, uid: Long) -> Unit,
     viewModel: InboxViewModel = hiltViewModel(),
 ) {
     val messages by viewModel.messages.collectAsState()
@@ -101,12 +118,24 @@ fun InboxScreen(
     val isScrollingUp by rememberIsScrollingUp(listState)
     var showMoveDialog by remember { mutableStateOf(false) }
     var showEmptyTrashConfirmation by remember { mutableStateOf(false) }
+    val isWideScreen = rememberIsWideScreen(settings.dualPaneMinWidthDp)
+    // Only ever navigated on wide screens (see below) — on a phone-width run the list pane
+    // always fills the screen and navigates the outer app-level controller exactly as before.
+    val detailNavController = rememberNavController()
+    // null until the user drags the splitter this session; falls back to the persisted width
+    // (settings.listPaneWidthDp) until then, so it also picks up that value once it's loaded
+    // rather than freezing on the pre-DataStore default.
+    var draggedPaneWidthDp by remember { mutableStateOf<Float?>(null) }
+    val paneWidthDp = (draggedPaneWidthDp ?: settings.listPaneWidthDp.toFloat())
+        .coerceIn(MIN_LIST_PANE_WIDTH_DP.toFloat(), MAX_LIST_PANE_WIDTH_DP.toFloat())
 
     LaunchedEffect(undoableAction) {
         val action = undoableAction ?: return@LaunchedEffect
-        // Long, not the default Short — an "undo this move" window needs enough time to actually
-        // notice and react to, not just enough to render.
-        val result = snackbarHostState.showSnackbar(message = action.label, actionLabel = "Undo", duration = SnackbarDuration.Long)
+        val result = snackbarHostState.showSnackbarFor(
+            message = action.label,
+            actionLabel = "Undo",
+            durationMillis = settings.undoDurationSeconds * 1000L,
+        )
         if (result == SnackbarResult.ActionPerformed) viewModel.undoLastMove() else viewModel.dismissUndo()
     }
     LaunchedEffect(syncError) {
@@ -221,117 +250,206 @@ fun InboxScreen(
             }
         },
     ) { padding ->
-        Column(modifier = Modifier.padding(padding)) {
-            LastSyncedText(
-                isSyncing = isSyncing,
-                lastSyncedAtEpochMillis = lastSyncedAt,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-            )
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-            ) {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = viewModel::onSearchQueryChange,
-                    placeholder = { Text("Search this folder") },
-                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                    trailingIcon = {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { viewModel.onSearchQueryChange("") }) {
-                                Icon(Icons.Filled.Clear, contentDescription = "Clear search")
-                            }
-                        }
+        if (isWideScreen) {
+            Row(modifier = Modifier.padding(padding).fillMaxSize()) {
+                InboxMessageListPane(
+                    modifier = Modifier.width(paneWidthDp.dp),
+                    messages = messages,
+                    isSyncing = isSyncing,
+                    lastSyncedAt = lastSyncedAt,
+                    searchQuery = searchQuery,
+                    anyFilterActive = anyFilterActive,
+                    isServerSearching = isServerSearching,
+                    isLoadingOlder = isLoadingOlder,
+                    settings = settings,
+                    selectedIds = selectedIds,
+                    selectionModeActive = selectionModeActive,
+                    hasAttachmentFilter = hasAttachmentFilter,
+                    unreadOnlyFilter = unreadOnlyFilter,
+                    flaggedOnlyFilter = flaggedOnlyFilter,
+                    viewModel = viewModel,
+                    onMessageClick = { folderKey, uid ->
+                        detailNavController.navigate(detailPaneMessageRoute(viewModel.accountId, folderKey, uid))
                     },
-                    singleLine = true,
+                    onThreadClick = { folderKey, conversationId ->
+                        detailNavController.navigate(detailPaneThreadRoute(viewModel.accountId, folderKey, conversationId))
+                    },
+                    listState = listState,
+                )
+                SplitPaneDivider(
+                    onDrag = { deltaDp ->
+                        draggedPaneWidthDp = ((draggedPaneWidthDp ?: settings.listPaneWidthDp.toFloat()) + deltaDp)
+                            .coerceIn(MIN_LIST_PANE_WIDTH_DP.toFloat(), MAX_LIST_PANE_WIDTH_DP.toFloat())
+                    },
+                    onDragStopped = {
+                        draggedPaneWidthDp?.let { viewModel.setListPaneWidthDp(it.roundToInt()) }
+                    },
+                )
+                MessageDetailPane(
+                    navController = detailNavController,
+                    onReply = onReplyClick,
+                    onReplyAll = onReplyAllClick,
+                    onForward = onForwardClick,
                     modifier = Modifier.weight(1f),
                 )
-                MessageFilterButton(
-                    hasAttachmentOnly = hasAttachmentFilter,
-                    unreadOnly = unreadOnlyFilter,
-                    flaggedOnly = flaggedOnlyFilter,
-                    onHasAttachmentOnlyChange = viewModel::onHasAttachmentFilterChange,
-                    onUnreadOnlyChange = viewModel::onUnreadOnlyFilterChange,
-                    onFlaggedOnlyChange = viewModel::onFlaggedOnlyFilterChange,
-                    onClearFilters = viewModel::clearFilters,
-                )
             }
-            // Always available once there's a query, not gated on local results coming up
-            // empty — the local cache is never guaranteed to have what the server does, and
-            // waiting for an empty result before offering this made it easy to miss entirely.
-            if (searchQuery.isNotBlank()) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 16.dp)) {
-                    if (isServerSearching) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp))
-                    } else {
-                        TextButton(onClick = viewModel::searchServer) {
-                            Text("Search server for \"$searchQuery\"")
+        } else {
+            InboxMessageListPane(
+                modifier = Modifier.padding(padding).fillMaxSize(),
+                messages = messages,
+                isSyncing = isSyncing,
+                lastSyncedAt = lastSyncedAt,
+                searchQuery = searchQuery,
+                anyFilterActive = anyFilterActive,
+                isServerSearching = isServerSearching,
+                isLoadingOlder = isLoadingOlder,
+                settings = settings,
+                selectedIds = selectedIds,
+                selectionModeActive = selectionModeActive,
+                hasAttachmentFilter = hasAttachmentFilter,
+                unreadOnlyFilter = unreadOnlyFilter,
+                flaggedOnlyFilter = flaggedOnlyFilter,
+                viewModel = viewModel,
+                onMessageClick = onMessageClick,
+                onThreadClick = onThreadClick,
+                listState = listState,
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun InboxMessageListPane(
+    messages: List<ConversationSummary>,
+    isSyncing: Boolean,
+    lastSyncedAt: Long?,
+    searchQuery: String,
+    anyFilterActive: Boolean,
+    isServerSearching: Boolean,
+    isLoadingOlder: Boolean,
+    settings: AppSettings,
+    selectedIds: Set<String>,
+    selectionModeActive: Boolean,
+    hasAttachmentFilter: Boolean,
+    unreadOnlyFilter: Boolean,
+    flaggedOnlyFilter: Boolean,
+    viewModel: InboxViewModel,
+    onMessageClick: (folderKey: String, uid: Long) -> Unit,
+    onThreadClick: (folderKey: String, conversationId: String) -> Unit,
+    listState: LazyListState,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier) {
+        LastSyncedText(
+            isSyncing = isSyncing,
+            lastSyncedAtEpochMillis = lastSyncedAt,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+        ) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = viewModel::onSearchQueryChange,
+                placeholder = { Text("Search this folder") },
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                trailingIcon = {
+                    if (searchQuery.isNotEmpty()) {
+                        IconButton(onClick = { viewModel.onSearchQueryChange("") }) {
+                            Icon(Icons.Filled.Clear, contentDescription = "Clear search")
                         }
+                    }
+                },
+                singleLine = true,
+                modifier = Modifier.weight(1f),
+            )
+            MessageFilterButton(
+                hasAttachmentOnly = hasAttachmentFilter,
+                unreadOnly = unreadOnlyFilter,
+                flaggedOnly = flaggedOnlyFilter,
+                onHasAttachmentOnlyChange = viewModel::onHasAttachmentFilterChange,
+                onUnreadOnlyChange = viewModel::onUnreadOnlyFilterChange,
+                onFlaggedOnlyChange = viewModel::onFlaggedOnlyFilterChange,
+                onClearFilters = viewModel::clearFilters,
+            )
+        }
+        // Always available once there's a query, not gated on local results coming up
+        // empty — the local cache is never guaranteed to have what the server does, and
+        // waiting for an empty result before offering this made it easy to miss entirely.
+        if (searchQuery.isNotBlank()) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 16.dp)) {
+                if (isServerSearching) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp))
+                } else {
+                    TextButton(onClick = viewModel::searchServer) {
+                        Text("Search server for \"$searchQuery\"")
                     }
                 }
             }
+        }
 
-            PullToRefreshBox(
-                isRefreshing = isSyncing,
-                onRefresh = viewModel::sync,
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                if (messages.isEmpty() && isSyncing && searchQuery.isBlank() && !anyFilterActive) {
-                    // Distinguishes "this folder's first sync is still running" from "this folder
-                    // is genuinely empty" — a blank list + spinner reads the same as either.
-                    MessageListSkeleton()
-                } else if (messages.isEmpty()) {
-                    EmptyState(
-                        icon = Icons.Filled.Inbox,
-                        message = if (searchQuery.isBlank() && !anyFilterActive) {
-                            stringResource(R.string.no_messages_yet)
-                        } else {
-                            "No messages match."
-                        },
-                    )
-                } else {
-                    LazyColumn(state = listState) {
-                        items(messages, key = { it.latestMessage.id }) { summary ->
-                            val message = summary.latestMessage
-                            MessageListItem(
-                                message = message,
-                                conversationCount = summary.messageCount,
-                                density = settings.listDensity,
-                                swipeRightAction = settings.swipeRightAction,
-                                swipeLeftAction = settings.swipeLeftAction,
-                                onClick = {
-                                    if (summary.messageCount > 1) {
-                                        onThreadClick(message.folderName, message.conversationId)
-                                    } else {
-                                        onMessageClick(message.folderName, message.uid)
-                                    }
-                                },
-                                onToggleRead = { viewModel.setMessageRead(message, !message.isRead) },
-                                onRemove = { viewModel.moveToTrash(message) },
-                                onArchive = { viewModel.archiveMessage(message) },
-                                onToggleFlag = { viewModel.setMessageFlagged(message, !message.isFlagged) },
-                                isSelected = message.id in selectedIds,
-                                selectionModeActive = selectionModeActive,
-                                onLongClick = { viewModel.toggleSelection(message.id) },
-                                onToggleSelect = { viewModel.toggleSelection(message.id) },
-                            )
-                            HorizontalDivider()
-                        }
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(16.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                if (isLoadingOlder) {
-                                    CircularProgressIndicator()
+        PullToRefreshBox(
+            isRefreshing = isSyncing,
+            onRefresh = viewModel::sync,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            if (messages.isEmpty() && isSyncing && searchQuery.isBlank() && !anyFilterActive) {
+                // Distinguishes "this folder's first sync is still running" from "this folder
+                // is genuinely empty" — a blank list + spinner reads the same as either.
+                MessageListSkeleton()
+            } else if (messages.isEmpty()) {
+                EmptyState(
+                    icon = Icons.Filled.Inbox,
+                    message = if (searchQuery.isBlank() && !anyFilterActive) {
+                        stringResource(R.string.no_messages_yet)
+                    } else {
+                        "No messages match."
+                    },
+                )
+            } else {
+                LazyColumn(state = listState) {
+                    items(messages, key = { it.latestMessage.id }) { summary ->
+                        val message = summary.latestMessage
+                        MessageListItem(
+                            message = message,
+                            conversationCount = summary.messageCount,
+                            density = settings.listDensity,
+                            swipeRightAction = settings.swipeRightAction,
+                            swipeLeftAction = settings.swipeLeftAction,
+                            onClick = {
+                                if (summary.messageCount > 1) {
+                                    onThreadClick(message.folderName, message.conversationId)
                                 } else {
-                                    TextButton(onClick = viewModel::loadOlderMessages) {
-                                        Text("Load older messages")
-                                    }
+                                    onMessageClick(message.folderName, message.uid)
+                                }
+                            },
+                            onToggleRead = { viewModel.setMessageRead(message, !message.isRead) },
+                            onRemove = { viewModel.moveToTrash(message) },
+                            onArchive = { viewModel.archiveMessage(message) },
+                            onToggleFlag = { viewModel.setMessageFlagged(message, !message.isFlagged) },
+                            isSelected = message.id in selectedIds,
+                            selectionModeActive = selectionModeActive,
+                            onLongClick = { viewModel.toggleSelection(message.id) },
+                            onToggleSelect = { viewModel.toggleSelection(message.id) },
+                        )
+                        HorizontalDivider()
+                    }
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (isLoadingOlder) {
+                                CircularProgressIndicator()
+                            } else {
+                                TextButton(onClick = viewModel::loadOlderMessages) {
+                                    Text("Load older messages")
                                 }
                             }
                         }

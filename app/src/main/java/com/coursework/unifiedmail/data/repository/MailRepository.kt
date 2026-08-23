@@ -70,6 +70,7 @@ data class DraftContent(
     val subject: String,
     val bodyHtml: String,
     val quotedHtml: String? = null,
+    val quotedText: String? = null,
     val inReplyToMessageIdHeader: String? = null,
     val referencesHeader: String? = null,
 )
@@ -116,17 +117,18 @@ class MailRepository @Inject constructor(
 
     private fun mutexFor(folderId: String): Mutex = folderSyncMutexes.computeIfAbsent(folderId) { Mutex() }
 
-    fun observeInbox(accountId: String): Flow<List<ConversationSummary>> = observeFolder(accountId, INBOX_FOLDER_KEY)
+    fun observeInbox(accountId: String, threaded: Boolean): Flow<List<ConversationSummary>> =
+        observeFolder(accountId, INBOX_FOLDER_KEY, threaded)
 
-    fun observeFolder(accountId: String, folderKey: String): Flow<List<ConversationSummary>> =
-        messageDao.observeConversations(accountId, folderKey)
+    fun observeFolder(accountId: String, folderKey: String, threaded: Boolean): Flow<List<ConversationSummary>> =
+        messageDao.observeConversations(accountId, folderKey, threaded)
 
     fun observeConversationMessages(accountId: String, folderKey: String, conversationId: String): Flow<List<MessageEntity>> =
         messageDao.observeConversationMessages(accountId, folderKey, conversationId)
 
     /** INBOX conversations across every active account, newest first — the app's home view. */
-    fun observeUnifiedInbox(): Flow<List<ConversationSummary>> =
-        messageDao.observeUnifiedConversations(INBOX_FOLDER_KEY)
+    fun observeUnifiedInbox(threaded: Boolean): Flow<List<ConversationSummary>> =
+        messageDao.observeUnifiedConversations(INBOX_FOLDER_KEY, threaded)
 
     fun searchUnifiedInbox(
         query: String,
@@ -134,8 +136,9 @@ class MailRepository @Inject constructor(
         unreadOnly: Boolean = false,
         flaggedOnly: Boolean = false,
         fromQuery: String = "",
+        threaded: Boolean = true,
     ): Flow<List<ConversationSummary>> =
-        messageDao.searchUnified(INBOX_FOLDER_KEY, query, hasAttachmentOnly, unreadOnly, flaggedOnly, fromQuery)
+        messageDao.searchUnified(INBOX_FOLDER_KEY, query, hasAttachmentOnly, unreadOnly, flaggedOnly, fromQuery, threaded)
 
     /** Local search scoped to one account/folder — used by the per-account Inbox screen's search field. */
     fun searchFolder(
@@ -145,8 +148,9 @@ class MailRepository @Inject constructor(
         hasAttachmentOnly: Boolean = false,
         unreadOnly: Boolean = false,
         flaggedOnly: Boolean = false,
+        threaded: Boolean = true,
     ): Flow<List<ConversationSummary>> =
-        messageDao.searchInFolder(accountId, folderKey, query, hasAttachmentOnly, unreadOnly, flaggedOnly)
+        messageDao.searchInFolder(accountId, folderKey, query, hasAttachmentOnly, unreadOnly, flaggedOnly, threaded)
 
     /**
      * Explicit, user-initiated fallback for when [searchFolder]'s local results don't cover it —
@@ -646,6 +650,7 @@ class MailRepository @Inject constructor(
                 subject = content.subject,
                 bodyHtml = content.bodyHtml,
                 quotedHtml = content.quotedHtml,
+                quotedText = content.quotedText,
                 inReplyToMessageIdHeader = content.inReplyToMessageIdHeader,
                 referencesHeader = content.referencesHeader,
                 updatedAtEpochMillis = System.currentTimeMillis(),

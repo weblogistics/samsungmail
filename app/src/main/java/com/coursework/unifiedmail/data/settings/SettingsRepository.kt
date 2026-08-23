@@ -38,6 +38,10 @@ class SettingsRepository @Inject constructor(
         val MESSAGE_TEXT_SIZE = stringPreferencesKey("message_text_size")
         val RECENT_MOVE_FOLDERS = stringPreferencesKey("recent_move_folders")
         val MOVE_FOLDER_USE_COUNTS = stringPreferencesKey("move_folder_use_counts")
+        val DUAL_PANE_MIN_WIDTH_DP = intPreferencesKey("dual_pane_min_width_dp")
+        val LIST_PANE_WIDTH_DP = intPreferencesKey("list_pane_width_dp")
+        val UNDO_DURATION_SECONDS = intPreferencesKey("undo_duration_seconds")
+        val THREADED_CONVERSATIONS = booleanPreferencesKey("threaded_conversations")
     }
 
     val settings: Flow<AppSettings> = context.settingsDataStore.data.map { prefs ->
@@ -54,6 +58,10 @@ class SettingsRepository @Inject constructor(
             messageTextSize = prefs[Keys.MESSAGE_TEXT_SIZE]?.toEnumOrNull<MessageTextSize>() ?: defaults.messageTextSize,
             recentMoveFolders = prefs[Keys.RECENT_MOVE_FOLDERS]?.split(RECENT_MOVE_FOLDERS_SEPARATOR)?.filter { it.isNotBlank() }.orEmpty(),
             moveFolderUseCounts = prefs[Keys.MOVE_FOLDER_USE_COUNTS]?.split(RECENT_MOVE_FOLDERS_SEPARATOR)?.filter { it.isNotBlank() }.orEmpty(),
+            dualPaneMinWidthDp = prefs[Keys.DUAL_PANE_MIN_WIDTH_DP] ?: defaults.dualPaneMinWidthDp,
+            listPaneWidthDp = prefs[Keys.LIST_PANE_WIDTH_DP] ?: defaults.listPaneWidthDp,
+            undoDurationSeconds = prefs[Keys.UNDO_DURATION_SECONDS] ?: defaults.undoDurationSeconds,
+            threadedConversations = prefs[Keys.THREADED_CONVERSATIONS] ?: defaults.threadedConversations,
         )
     }
 
@@ -96,6 +104,22 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setMessageTextSize(size: MessageTextSize) {
         context.settingsDataStore.edit { it[Keys.MESSAGE_TEXT_SIZE] = size.name }
+    }
+
+    suspend fun setDualPaneMinWidthDp(widthDp: Int) {
+        context.settingsDataStore.edit { it[Keys.DUAL_PANE_MIN_WIDTH_DP] = widthDp }
+    }
+
+    suspend fun setListPaneWidthDp(widthDp: Int) {
+        context.settingsDataStore.edit { it[Keys.LIST_PANE_WIDTH_DP] = widthDp }
+    }
+
+    suspend fun setUndoDurationSeconds(seconds: Int) {
+        context.settingsDataStore.edit { it[Keys.UNDO_DURATION_SECONDS] = seconds }
+    }
+
+    suspend fun setThreadedConversations(enabled: Boolean) {
+        context.settingsDataStore.edit { it[Keys.THREADED_CONVERSATIONS] = enabled }
     }
 
     /**

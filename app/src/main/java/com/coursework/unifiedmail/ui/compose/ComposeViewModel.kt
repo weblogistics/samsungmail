@@ -50,6 +50,10 @@ data class ComposeUiState(
     // editor (see ComposeScreen) and reattached verbatim to the outgoing HTML in send(), since
     // the rich-text editor has no way to represent arbitrary original formatting/images itself.
     val quotedHtml: String? = null,
+    // Set only when replying/replying-all — the quoted original, kept out of bodyRuns so it
+    // shows read-only below a divider (see ComposeScreen) instead of as text mixed in with the
+    // new message, and reattached verbatim in send().
+    val quotedText: String? = null,
     val attachments: List<PickedAttachment> = emptyList(),
     val isSending: Boolean = false,
     val error: String? = null,
@@ -136,6 +140,7 @@ class ComposeViewModel @Inject constructor(
                 subject = draft.subject,
                 bodyRuns = RichText.fromHtml(draft.bodyHtml),
                 quotedHtml = draft.quotedHtml,
+                quotedText = draft.quotedText,
             )
         }
     }
@@ -156,6 +161,7 @@ class ComposeViewModel @Inject constructor(
                 subject = state.subject,
                 bodyHtml = RichText.toHtml(state.bodyRuns),
                 quotedHtml = state.quotedHtml,
+                quotedText = state.quotedText,
                 inReplyToMessageIdHeader = sourceMessage?.messageIdHeader ?: restoredInReplyTo,
                 referencesHeader = sourceMessage?.messageIdHeader ?: restoredReferences,
             ),
@@ -174,13 +180,16 @@ class ComposeViewModel @Inject constructor(
     private fun prefillFromSource(source: MessageEntity, ownAddress: String?, signatureBlock: String) {
         when (mode) {
             ComposeMode.REPLY -> {
-                val quoted = RichText.fromPlainText(signatureBlock + quoteBody(source))
                 _uiState.update {
-                    it.copy(to = source.fromAddress.orEmpty(), subject = withPrefix(source.subject, "Re:"), bodyRuns = quoted)
+                    it.copy(
+                        to = source.fromAddress.orEmpty(),
+                        subject = withPrefix(source.subject, "Re:"),
+                        bodyRuns = RichText.fromPlainText(signatureBlock),
+                        quotedText = quoteBody(source),
+                    )
                 }
             }
             ComposeMode.REPLY_ALL -> {
-                val quoted = RichText.fromPlainText(signatureBlock + quoteBody(source))
                 val ccRecipients = (splitAddresses(source.toAddresses) + splitAddresses(source.ccAddresses))
                     .filter { !it.equals(ownAddress, ignoreCase = true) && !it.equals(source.fromAddress, ignoreCase = true) }
                     .distinct()
@@ -189,7 +198,8 @@ class ComposeViewModel @Inject constructor(
                         to = source.fromAddress.orEmpty(),
                         cc = ccRecipients.joinToString(", "),
                         subject = withPrefix(source.subject, "Re:"),
-                        bodyRuns = quoted,
+                        bodyRuns = RichText.fromPlainText(signatureBlock),
+                        quotedText = quoteBody(source),
                     )
                 }
             }
@@ -226,7 +236,7 @@ class ComposeViewModel @Inject constructor(
         val original = source.bodyText ?: source.bodyPreview
         val from = source.fromPersonal?.takeIf { it.isNotBlank() } ?: source.fromAddress ?: "unknown sender"
         val quotedLines = original.lines().joinToString("\n") { "> $it" }
-        return "\n\nOn a previous message, $from wrote:\n$quotedLines"
+        return "On a previous message, $from wrote:\n$quotedLines"
     }
 
     private fun withPrefix(subject: String?, prefix: String): String {
@@ -336,10 +346,16 @@ class ComposeViewModel @Inject constructor(
             // touches it. The plain-text fallback part gets an equivalent flattened quote so
             // plain-text-only recipients still see the original content.
             val quotedHtml = state.quotedHtml
+            // A reply's quoted original (see quotedText) never went through the rich-text model
+            // either — it's reattached here behind an actual <hr>, matching how it's shown in
+            // ComposeScreen: the new message on top, a rule, then the read-only original below.
+            val quotedText = state.quotedText
             val bodyHtml = RichText.toHtml(state.bodyRuns) +
-                (quotedHtml?.let { "<br><br>---------- Forwarded message ----------<br>$it" } ?: "")
+                (quotedHtml?.let { "<br><br>---------- Forwarded message ----------<br>$it" } ?: "") +
+                (quotedText?.let { "<hr>${RichText.toHtml(RichText.fromPlainText(it))}" } ?: "")
             val body = RichText.plainTextOf(state.bodyRuns) +
-                (sourceMessage?.takeIf { quotedHtml != null }?.let { quoteBody(it) } ?: "")
+                (sourceMessage?.takeIf { quotedHtml != null }?.let { "\n\n" + quoteBody(it) } ?: "") +
+                (quotedText?.let { "\n\n----------\n$it" } ?: "")
             val draft = ComposeDraft(
                 to = recipients,
                 cc = state.cc.split(",", ";").map { it.trim() }.filter { it.isNotBlank() },

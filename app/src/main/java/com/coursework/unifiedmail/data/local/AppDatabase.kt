@@ -9,7 +9,7 @@ import androidx.room.TypeConverters
         AccountEntity::class, FolderEntity::class, MessageEntity::class, OutboxEntity::class,
         AttachmentEntity::class, OutboxAttachmentEntity::class, DraftEntity::class,
     ],
-    version = 13,
+    version = 14,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)

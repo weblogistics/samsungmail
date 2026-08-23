@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.coursework.unifiedmail.data.settings.AppSettings.Companion.ALL_MAIL_SYNC_WINDOW_DAYS
+import com.coursework.unifiedmail.data.settings.AppSettings.Companion.DUAL_PANE_DISABLED_WIDTH_DP
 import com.coursework.unifiedmail.data.settings.AppSettings.Companion.ON_ARRIVAL_MINUTES
 import com.coursework.unifiedmail.data.settings.ListDensity
 import com.coursework.unifiedmail.data.settings.MessageTextSize
@@ -41,6 +42,10 @@ import com.coursework.unifiedmail.ui.components.SectionLabel
 
 private val SYNC_INTERVAL_OPTIONS = listOf(ON_ARRIVAL_MINUTES, 1L, 5L, 10L, 15L, 30L, 60L)
 private val SYNC_WINDOW_OPTIONS = listOf(7, 30, 90, 365, ALL_MAIL_SYNC_WINDOW_DAYS)
+// 600dp is Android's standard large-screen breakpoint (an unfolded foldable or small tablet);
+// 720/840 give it more room before switching, matching larger tablets.
+private val DUAL_PANE_WIDTH_OPTIONS = listOf(DUAL_PANE_DISABLED_WIDTH_DP, 600, 720, 840)
+private val UNDO_DURATION_OPTIONS = listOf(3, 5, 8, 10, 15)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -55,6 +60,8 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
     var showSyncWindowDialog by remember { mutableStateOf(false) }
     var showListDensityDialog by remember { mutableStateOf(false) }
     var showTextSizeDialog by remember { mutableStateOf(false) }
+    var showDualPaneWidthDialog by remember { mutableStateOf(false) }
+    var showUndoDurationDialog by remember { mutableStateOf(false) }
 
     if (showSwipeRightDialog) {
         RadioOptionDialog(
@@ -147,6 +154,32 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
             },
         )
     }
+    if (showDualPaneWidthDialog) {
+        RadioOptionDialog(
+            title = "Two-pane layout",
+            options = DUAL_PANE_WIDTH_OPTIONS,
+            selected = settings.dualPaneMinWidthDp,
+            labelFor = { it.toDualPaneWidthLabel() },
+            onDismiss = { showDualPaneWidthDialog = false },
+            onSelect = {
+                viewModel.setDualPaneMinWidthDp(it)
+                showDualPaneWidthDialog = false
+            },
+        )
+    }
+    if (showUndoDurationDialog) {
+        RadioOptionDialog(
+            title = "Undo notice duration",
+            options = UNDO_DURATION_OPTIONS,
+            selected = settings.undoDurationSeconds,
+            labelFor = { it.toUndoDurationLabel() },
+            onDismiss = { showUndoDurationDialog = false },
+            onSelect = {
+                viewModel.setUndoDurationSeconds(it)
+                showUndoDurationDialog = false
+            },
+        )
+    }
     if (showDefaultViewDialog) {
         // null represents Unified Inbox — listed first, ahead of individual accounts.
         RadioOptionDialog(
@@ -222,9 +255,29 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
                 value = settings.messageTextSize.displayLabel(),
                 onClick = { showTextSizeDialog = true },
             )
+            SettingRow(
+                label = "Two-pane layout",
+                value = settings.dualPaneMinWidthDp.toDualPaneWidthLabel(),
+                onClick = { showDualPaneWidthDialog = true },
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+            ) {
+                Text("Group messages into conversations")
+                Switch(checked = settings.threadedConversations, onCheckedChange = viewModel::setThreadedConversations)
+            }
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
             SectionLabel(text = "General", modifier = Modifier.padding(16.dp))
+            SettingRow(
+                label = "Undo notice duration",
+                value = settings.undoDurationSeconds.toUndoDurationLabel(),
+                onClick = { showUndoDurationDialog = true },
+            )
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -287,3 +340,10 @@ private fun Int.toSyncWindowLabel(): String = when {
     this == 365 -> "1 year"
     else -> "$this days"
 }
+
+private fun Int.toDualPaneWidthLabel(): String = when {
+    this == DUAL_PANE_DISABLED_WIDTH_DP -> "Off"
+    else -> "${this}dp and wider"
+}
+
+private fun Int.toUndoDurationLabel(): String = "$this seconds"
