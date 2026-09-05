@@ -14,6 +14,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.coursework.unifiedmail.MainActivity
 import com.coursework.unifiedmail.R
+import com.coursework.unifiedmail.data.local.MessageEntity
+import com.coursework.unifiedmail.data.settings.AppSettingsProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -21,6 +23,7 @@ import javax.inject.Singleton
 @Singleton
 class NotificationHelper @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val settingsProvider: AppSettingsProvider,
 ) {
     fun createChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -43,8 +46,14 @@ class NotificationHelper @Inject constructor(
             .setOngoing(true)
             .build()
 
-    /** No-ops if the POST_NOTIFICATIONS permission was never granted (not requested, or denied). */
-    fun showNewMailNotification(accountId: String, accountDisplayName: String, newMessageCount: Int) {
+    /**
+     * No-ops if the POST_NOTIFICATIONS permission was never granted (not requested, or denied),
+     * or if [newMessages] is empty. [newMessages] drives the sender/subject/snippet preview when
+     * AppSettings.showNotificationPreview is on (see [buildContent]) — off (or no message data
+     * available) falls back to a bare "N new messages" count, same as before that setting existed.
+     */
+    suspend fun showNewMailNotification(accountId: String, accountDisplayName: String, newMessages: List<MessageEntity>) {
+        if (newMessages.isEmpty()) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val granted = ActivityCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
                 PackageManager.PERMISSION_GRANTED
@@ -78,21 +87,55 @@ class NotificationHelper @Inject constructor(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        val contentText = if (newMessageCount == 1) "1 new message" else "$newMessageCount new messages"
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+        val showPreview = settingsProvider.currentSettings().showNotificationPreview
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(accountDisplayName)
-            .setContentText(contentText)
             .setAutoCancel(true)
             .setContentIntent(contentPendingIntent)
             .addAction(0, "Mark all read", markReadPendingIntent)
-            .build()
+        buildContent(builder, accountDisplayName, newMessages, showPreview)
 
-        NotificationManagerCompat.from(context).notify(notificationId, notification)
+        NotificationManagerCompat.from(context).notify(notificationId, builder.build())
+    }
+
+    /** Bare count, unless [showPreview] is on — then sender/subject (one message) or an inbox-style sender/subject list (several). */
+    private fun buildContent(builder: NotificationCompat.Builder, accountDisplayName: String, newMessages: List<MessageEntity>, showPreview: Boolean) {
+        val count = newMessages.size
+        val countText = if (count == 1) "1 new message" else "$count new messages"
+
+        if (!showPreview) {
+            builder.setContentTitle(accountDisplayName).setContentText(countText)
+            return
+        }
+
+        if (count == 1) {
+            val message = newMessages.single()
+            val sender = message.fromPersonal?.takeIf { it.isNotBlank() } ?: message.fromAddress ?: accountDisplayName
+            val subject = message.subject?.takeIf { it.isNotBlank() } ?: "(no subject)"
+            val snippet = message.bodyPreview.takeIf { it.isNotBlank() }
+            builder.setContentTitle(sender).setContentText(subject)
+            builder.setStyle(
+                NotificationCompat.BigTextStyle()
+                    .setBigContentTitle(sender)
+                    .bigText(if (snippet != null) "$subject\n$snippet" else subject),
+            )
+        } else {
+            builder.setContentTitle(accountDisplayName).setContentText(countText)
+            val inboxStyle = NotificationCompat.InboxStyle().setBigContentTitle(accountDisplayName).setSummaryText(accountDisplayName)
+            for (message in newMessages.take(MAX_INBOX_STYLE_LINES)) {
+                val sender = message.fromPersonal?.takeIf { it.isNotBlank() } ?: message.fromAddress ?: "Unknown sender"
+                val subject = message.subject?.takeIf { it.isNotBlank() } ?: "(no subject)"
+                inboxStyle.addLine("$sender: $subject")
+            }
+            builder.setStyle(inboxStyle)
+        }
     }
 
     private companion object {
         const val CHANNEL_ID = "new_mail"
         const val IDLE_CHANNEL_ID = "mail_idle_push"
+        // Matches the common "show a handful, then just the count" convention (Gmail does the
+        // same) rather than growing the notification unboundedly for a big batch of new mail.
+        const val MAX_INBOX_STYLE_LINES = 5
     }
 }

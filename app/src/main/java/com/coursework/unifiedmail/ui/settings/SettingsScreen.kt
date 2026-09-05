@@ -15,6 +15,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -39,6 +40,7 @@ import com.coursework.unifiedmail.data.settings.SwipeAction
 import com.coursework.unifiedmail.data.settings.ThemeMode
 import com.coursework.unifiedmail.ui.components.RadioOptionDialog
 import com.coursework.unifiedmail.ui.components.SectionLabel
+import com.coursework.unifiedmail.ui.theme.Spacing
 
 private val SYNC_INTERVAL_OPTIONS = listOf(ON_ARRIVAL_MINUTES, 1L, 5L, 10L, 15L, 30L, 60L)
 private val SYNC_WINDOW_OPTIONS = listOf(7, 30, 90, 365, ALL_MAIL_SYNC_WINDOW_DAYS)
@@ -208,7 +210,7 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
         },
     ) { padding ->
         Column(modifier = Modifier.padding(padding).verticalScroll(rememberScrollState())) {
-            SectionLabel(text = "Swipe actions", modifier = Modifier.padding(16.dp))
+            SectionLabel(text = "Swipe actions", modifier = Modifier.padding(Spacing.md))
             SettingRow(
                 label = "Swipe right",
                 value = settings.swipeRightAction.displayLabel(),
@@ -220,8 +222,8 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
                 onClick = { showSwipeLeftDialog = true },
             )
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-            SectionLabel(text = "Sync", modifier = Modifier.padding(16.dp))
+            HorizontalDivider(modifier = Modifier.padding(vertical = Spacing.sm))
+            SectionLabel(text = "Sync", modifier = Modifier.padding(Spacing.md))
             SettingRow(
                 label = "Sync interval",
                 value = settings.syncIntervalMinutes.toSyncIntervalLabel(),
@@ -233,8 +235,28 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
                 onClick = { showSyncWindowDialog = true },
             )
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-            SectionLabel(text = "Display", modifier = Modifier.padding(16.dp))
+            HorizontalDivider(modifier = Modifier.padding(vertical = Spacing.sm))
+            SectionLabel(text = "Notifications", modifier = Modifier.padding(Spacing.md))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Show message preview")
+                    Text(
+                        "Sender, subject, and a snippet — turn off for just a count",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = settings.showNotificationPreview, onCheckedChange = viewModel::setShowNotificationPreview)
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = Spacing.sm))
+            SectionLabel(text = "Display", modifier = Modifier.padding(Spacing.md))
             SettingRow(
                 label = "Theme",
                 value = settings.themeMode.displayLabel(),
@@ -265,14 +287,14 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
                 horizontalArrangement = Arrangement.SpaceBetween,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                    .padding(horizontal = Spacing.md, vertical = Spacing.sm),
             ) {
                 Text("Group messages into conversations")
                 Switch(checked = settings.threadedConversations, onCheckedChange = viewModel::setThreadedConversations)
             }
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-            SectionLabel(text = "General", modifier = Modifier.padding(16.dp))
+            HorizontalDivider(modifier = Modifier.padding(vertical = Spacing.sm))
+            SectionLabel(text = "General", modifier = Modifier.padding(Spacing.md))
             SettingRow(
                 label = "Undo notice duration",
                 value = settings.undoDurationSeconds.toUndoDurationLabel(),
@@ -283,7 +305,7 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
                 horizontalArrangement = Arrangement.SpaceBetween,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                    .padding(horizontal = Spacing.md, vertical = Spacing.sm),
             ) {
                 Text("Confirm before removing a message")
                 Switch(checked = settings.confirmBeforeDelete, onCheckedChange = viewModel::setConfirmBeforeDelete)

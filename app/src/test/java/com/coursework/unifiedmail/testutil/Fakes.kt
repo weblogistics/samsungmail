@@ -299,6 +299,11 @@ class FakeMessageDao : MessageDao {
     override suspend fun getMinUid(accountId: String, folderName: String): Long? =
         messages.filter { it.accountId == accountId && it.folderName == folderName }.minOfOrNull { it.uid }
 
+    override suspend fun getRecent(accountId: String, folderName: String, limit: Int): List<MessageEntity> =
+        messages.filter { it.accountId == accountId && it.folderName == folderName }
+            .sortedByDescending { it.sentDateEpochMillis ?: it.receivedDateEpochMillis ?: 0L }
+            .take(limit)
+
     override suspend fun getAddressColumns(accountId: String, folderName: String): List<AddressColumns> =
         messages.filter { it.accountId == accountId && it.folderName == folderName }
             .map { AddressColumns(it.toAddresses, it.ccAddresses) }

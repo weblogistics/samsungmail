@@ -248,6 +248,18 @@ class MailRepository @Inject constructor(
     suspend fun getMessage(accountId: String, folderKey: String, uid: Long): MessageEntity? =
         messageDao.getByUid(accountId, folderKey, uid)
 
+    /**
+     * The [limit] most-recently-dated cached messages in this folder — used by SyncWorker/
+     * MailIdleService to build a new-mail notification's sender/subject/snippet preview (see
+     * NotificationHelper.showNewMailNotification) right after a sync reports [limit] new ones.
+     * A date-sort approximation of "the messages that were just synced" rather than an exact
+     * list — sync only ever adds rows with UID greater than the previous watermark, so as long as
+     * new mail is dated later than everything already cached (the overwhelmingly common case),
+     * this is exactly them.
+     */
+    suspend fun getRecentMessages(accountId: String, folderKey: String, limit: Int): List<MessageEntity> =
+        messageDao.getRecent(accountId, folderKey, limit)
+
     suspend fun setMessageRead(accountId: String, folderKey: String, uid: Long, isRead: Boolean) {
         messageDao.markRead(messageId(accountId, folderKey, uid), isRead)
         // Local state is authoritative for the UI immediately; the server push happens in the

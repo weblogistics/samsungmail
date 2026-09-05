@@ -36,7 +36,8 @@ class SyncWorker @AssistedInject constructor(
                     // means the user is already looking at the list.
                     for ((account, result) in results) {
                         if (result is SyncOutcome.Success && result.newMessageCount > 0 && account.notificationsEnabled) {
-                            notificationHelper.showNewMailNotification(account.id, account.displayName, result.newMessageCount)
+                            val recent = mailRepository.getRecentMessages(account.id, MailRepository.INBOX_FOLDER_KEY, result.newMessageCount)
+                            notificationHelper.showNewMailNotification(account.id, account.displayName, recent)
                         }
                     }
                 }

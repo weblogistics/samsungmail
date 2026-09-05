@@ -42,6 +42,7 @@ class SettingsRepository @Inject constructor(
         val LIST_PANE_WIDTH_DP = intPreferencesKey("list_pane_width_dp")
         val UNDO_DURATION_SECONDS = intPreferencesKey("undo_duration_seconds")
         val THREADED_CONVERSATIONS = booleanPreferencesKey("threaded_conversations")
+        val SHOW_NOTIFICATION_PREVIEW = booleanPreferencesKey("show_notification_preview")
     }
 
     val settings: Flow<AppSettings> = context.settingsDataStore.data.map { prefs ->
@@ -62,6 +63,7 @@ class SettingsRepository @Inject constructor(
             listPaneWidthDp = prefs[Keys.LIST_PANE_WIDTH_DP] ?: defaults.listPaneWidthDp,
             undoDurationSeconds = prefs[Keys.UNDO_DURATION_SECONDS] ?: defaults.undoDurationSeconds,
             threadedConversations = prefs[Keys.THREADED_CONVERSATIONS] ?: defaults.threadedConversations,
+            showNotificationPreview = prefs[Keys.SHOW_NOTIFICATION_PREVIEW] ?: defaults.showNotificationPreview,
         )
     }
 
@@ -120,6 +122,10 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setThreadedConversations(enabled: Boolean) {
         context.settingsDataStore.edit { it[Keys.THREADED_CONVERSATIONS] = enabled }
+    }
+
+    suspend fun setShowNotificationPreview(enabled: Boolean) {
+        context.settingsDataStore.edit { it[Keys.SHOW_NOTIFICATION_PREVIEW] = enabled }
     }
 
     /**

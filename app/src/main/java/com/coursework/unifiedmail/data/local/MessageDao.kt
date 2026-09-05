@@ -33,6 +33,13 @@ interface MessageDao {
     @Query("SELECT MIN(uid) FROM messages WHERE accountId = :accountId AND folderName = :folderName")
     suspend fun getMinUid(accountId: String, folderName: String): Long?
 
+    /** The [limit] most-recently-dated cached messages — see MailRepository.getRecentMessages, used to build a new-mail notification's preview. */
+    @Query(
+        "SELECT * FROM messages WHERE accountId = :accountId AND folderName = :folderName " +
+            "ORDER BY COALESCE(sentDateEpochMillis, receivedDateEpochMillis) DESC LIMIT :limit",
+    )
+    suspend fun getRecent(accountId: String, folderName: String, limit: Int): List<MessageEntity>
+
     @Query("UPDATE messages SET isRead = :isRead WHERE id = :id")
     suspend fun markRead(id: String, isRead: Boolean)
 

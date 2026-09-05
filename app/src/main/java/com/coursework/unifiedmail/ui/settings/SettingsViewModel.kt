@@ -78,6 +78,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { settingsRepository.setThreadedConversations(enabled) }
     }
 
+    fun setShowNotificationPreview(enabled: Boolean) {
+        viewModelScope.launch { settingsRepository.setShowNotificationPreview(enabled) }
+    }
+
     fun setSyncIntervalMinutes(minutes: Long) {
         viewModelScope.launch {
             settingsRepository.setSyncIntervalMinutes(minutes)

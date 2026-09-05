@@ -35,6 +35,10 @@ data class AppSettings(
     // Whether related messages (same IMAP thread — see ConversationThreading) are grouped into
     // one row in the message list. Off shows every message as its own row instead.
     val threadedConversations: Boolean = true,
+    // Whether a new-mail notification shows the sender/subject/snippet (see
+    // NotificationHelper.showNewMailNotification) or just a bare "N new messages" count — off is
+    // the more private choice for a shared or lock-screen-visible device.
+    val showNotificationPreview: Boolean = true,
 ) {
     val isPushSync: Boolean get() = syncIntervalMinutes == ON_ARRIVAL_MINUTES
 
