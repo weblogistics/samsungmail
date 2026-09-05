@@ -1,6 +1,8 @@
 package com.coursework.unifiedmail.testutil
 
 import com.coursework.unifiedmail.data.local.AccountEntity
+import com.coursework.unifiedmail.data.local.AccountUnreadCount
+import com.coursework.unifiedmail.data.local.AddressColumns
 import com.coursework.unifiedmail.data.local.AttachmentDao
 import com.coursework.unifiedmail.data.local.AttachmentEntity
 import com.coursework.unifiedmail.data.local.ConversationSummary
@@ -196,6 +198,14 @@ class FakeImapClient : ImapClient {
         lastFetchAttachmentRequested = uid to attachmentIndex
         return fetchAttachmentResult
     }
+
+    var fetchRawHeadersResult: Result<String> = Result.success("")
+    var lastFetchRawHeadersRequested: Long? = null
+
+    override suspend fun fetchRawHeaders(config: ImapConfig, folderFullName: String, uid: Long): Result<String> {
+        lastFetchRawHeadersRequested = uid
+        return fetchRawHeadersResult
+    }
 }
 
 class FakeAppSettingsProvider : AppSettingsProvider {
@@ -289,6 +299,10 @@ class FakeMessageDao : MessageDao {
     override suspend fun getMinUid(accountId: String, folderName: String): Long? =
         messages.filter { it.accountId == accountId && it.folderName == folderName }.minOfOrNull { it.uid }
 
+    override suspend fun getAddressColumns(accountId: String, folderName: String): List<AddressColumns> =
+        messages.filter { it.accountId == accountId && it.folderName == folderName }
+            .map { AddressColumns(it.toAddresses, it.ccAddresses) }
+
     override suspend fun markRead(id: String, isRead: Boolean) {
         val index = messages.indexOfFirst { it.id == id }
         if (index >= 0) messages[index] = messages[index].copy(isRead = isRead)
@@ -330,6 +344,13 @@ class FakeMessageDao : MessageDao {
 
     override fun observeUnifiedConversations(folderName: String, threaded: Boolean): Flow<List<ConversationSummary>> =
         flowOf(toConversations(messages.filter { it.folderName == folderName }, threaded))
+
+    override fun observeUnreadCountsByAccount(folderName: String): Flow<List<AccountUnreadCount>> =
+        flowOf(
+            messages.filter { it.folderName == folderName && !it.isRead }
+                .groupBy { it.accountId }
+                .map { (accountId, group) -> AccountUnreadCount(accountId, group.size) },
+        )
 
     override fun searchUnified(
         folderName: String,

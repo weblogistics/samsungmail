@@ -12,6 +12,11 @@ data class ConversationSummary(
     val messageCount: Int,
 )
 
+data class AccountUnreadCount(val accountId: String, val unreadCount: Int)
+
+/** Projection for MailRepository.getAutocompleteContacts — just the two columns actually addresses live in. */
+data class AddressColumns(val toAddresses: String?, val ccAddresses: String?)
+
 @Dao
 interface MessageDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -19,6 +24,10 @@ interface MessageDao {
 
     @Query("SELECT * FROM messages WHERE accountId = :accountId AND folderName = :folderName AND uid = :uid")
     suspend fun getByUid(accountId: String, folderName: String, uid: Long): MessageEntity?
+
+    /** Feeds MailRepository.getAutocompleteContacts — every To/Cc pair cached for one account's Sent folder. */
+    @Query("SELECT toAddresses, ccAddresses FROM messages WHERE accountId = :accountId AND folderName = :folderName")
+    suspend fun getAddressColumns(accountId: String, folderName: String): List<AddressColumns>
 
     /** Lowest cached UID in this folder — the boundary "load older mail" pages backward from. */
     @Query("SELECT MIN(uid) FROM messages WHERE accountId = :accountId AND folderName = :folderName")
@@ -29,6 +38,13 @@ interface MessageDao {
 
     @Query("SELECT * FROM messages WHERE accountId = :accountId AND folderName = :folderName AND isRead = 0")
     suspend fun getUnread(accountId: String, folderName: String): List<MessageEntity>
+
+    /** Unread inbox count per account — drives the drawer's per-account and Combined view badges. */
+    @Query(
+        "SELECT accountId, COUNT(*) as unreadCount FROM messages " +
+            "WHERE folderName = :folderName AND isRead = 0 GROUP BY accountId",
+    )
+    fun observeUnreadCountsByAccount(folderName: String): Flow<List<AccountUnreadCount>>
 
     @Query("UPDATE messages SET isFlagged = :isFlagged WHERE id = :id")
     suspend fun markFlagged(id: String, isFlagged: Boolean)

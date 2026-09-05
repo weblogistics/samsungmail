@@ -70,6 +70,21 @@ class MessageDetailViewModel @Inject constructor(
     private val _downloadedFileUri = MutableStateFlow<Pair<Uri, String?>?>(null)
     val downloadedFileUri: StateFlow<Pair<Uri, String?>?> = _downloadedFileUri.asStateFlow()
 
+    // "View headers" dialog state. Headers are fetched fresh from the server on first open (see
+    // openHeaders) and kept around for the rest of this screen's lifetime rather than
+    // re-fetched every time the dialog is reopened.
+    private val _showHeaders = MutableStateFlow(false)
+    val showHeaders: StateFlow<Boolean> = _showHeaders.asStateFlow()
+
+    private val _headers = MutableStateFlow<String?>(null)
+    val headers: StateFlow<String?> = _headers.asStateFlow()
+
+    private val _headersLoading = MutableStateFlow(false)
+    val headersLoading: StateFlow<Boolean> = _headersLoading.asStateFlow()
+
+    private val _headersError = MutableStateFlow<String?>(null)
+    val headersError: StateFlow<String?> = _headersError.asStateFlow()
+
     init {
         viewModelScope.launch {
             val loaded = mailRepository.getMessage(accountId, folderKey, uid)
@@ -125,5 +140,22 @@ class MessageDetailViewModel @Inject constructor(
 
     fun consumeDownloadedFile() {
         _downloadedFileUri.value = null
+    }
+
+    fun openHeaders() {
+        _showHeaders.value = true
+        if (_headers.value != null || _headersLoading.value) return
+        viewModelScope.launch {
+            _headersLoading.value = true
+            _headersError.value = null
+            mailRepository.fetchMessageHeaders(accountId, folderKey, uid)
+                .onSuccess { _headers.value = it }
+                .onFailure { _headersError.value = describeMailError(it) }
+            _headersLoading.value = false
+        }
+    }
+
+    fun dismissHeaders() {
+        _showHeaders.value = false
     }
 }

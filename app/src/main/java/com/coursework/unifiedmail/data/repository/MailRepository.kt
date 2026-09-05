@@ -32,6 +32,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -40,6 +41,8 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
+import javax.mail.internet.AddressException
+import javax.mail.internet.InternetAddress
 
 sealed class SyncOutcome {
     data class Success(val newMessageCount: Int) : SyncOutcome()
@@ -74,6 +77,12 @@ data class DraftContent(
     val inReplyToMessageIdHeader: String? = null,
     val referencesHeader: String? = null,
 )
+
+/** One suggestion in the compose screen's address autocomplete — see MailRepository.getAutocompleteContacts. */
+data class EmailContact(val displayName: String?, val address: String) {
+    /** What gets inserted into a To/Cc/Bcc field and shown in the suggestion row. */
+    val formatted: String get() = if (!displayName.isNullOrBlank()) "$displayName <$address>" else address
+}
 
 data class ComposeDraft(
     val to: List<String>,
@@ -129,6 +138,11 @@ class MailRepository @Inject constructor(
     /** INBOX conversations across every active account, newest first — the app's home view. */
     fun observeUnifiedInbox(threaded: Boolean): Flow<List<ConversationSummary>> =
         messageDao.observeUnifiedConversations(INBOX_FOLDER_KEY, threaded)
+
+    /** Unread inbox count per account id — drives the drawer's account and Combined view badges. */
+    fun observeUnreadCountsByAccount(): Flow<Map<String, Int>> =
+        messageDao.observeUnreadCountsByAccount(INBOX_FOLDER_KEY)
+            .map { counts -> counts.associate { it.accountId to it.unreadCount } }
 
     fun searchUnifiedInbox(
         query: String,
@@ -579,6 +593,76 @@ class MailRepository @Inject constructor(
         return folderDao.getForAccount(accountId)
             .firstOrNull { it.fullName.contains("spam", ignoreCase = true) || it.fullName.contains("junk", ignoreCase = true) }
             ?.let { localFolderKey(it.fullName) }
+    }
+
+    /**
+     * Same name-guessing idea as [findTrashFolderKey]/[findArchiveFolderKey]/[findSpamFolderKey] —
+     * there's no dedicated per-account "Sent folder" setting (unlike those three, see
+     * AccountEntity), so this always falls back to the single best name match. Used only to build
+     * the compose screen's address autocomplete (see [getAutocompleteContacts]), not for any
+     * move/trash-style operation, so a missing/misnamed Sent folder just means an empty
+     * suggestion list rather than a failed action.
+     */
+    private suspend fun findSentFolderKey(accountId: String): String? =
+        folderDao.getForAccount(accountId)
+            .firstOrNull { it.fullName.contains("sent", ignoreCase = true) }
+            ?.let { localFolderKey(it.fullName) }
+
+    /**
+     * Best-effort refresh of every active account's Sent folder, purely so [getAutocompleteContacts]
+     * has real data to draw from — Sent isn't part of the normal INBOX-only periodic sync (see
+     * [syncAccount]). Failures (no Sent folder found/configured, offline, bad credentials, ...)
+     * are swallowed here: autocomplete simply falls back to whatever's already cached, the same
+     * way it would for a brand-new account that hasn't synced yet.
+     */
+    suspend fun refreshAutocompleteSource() {
+        for (account in accountRepository.getAllAccountsOnce().filter { it.isActive }) {
+            val sentFolderKey = findSentFolderKey(account.id) ?: continue
+            runCatching { syncFolder(account.id, sentFolderKey) }
+        }
+    }
+
+    /**
+     * Recipient addresses drawn from every active account's cached Sent folder — "people this
+     * account has actually emailed", which is what the user asked autocomplete to be built from,
+     * rather than every address that's ever shown up in an inbox (spam, mailing lists, ...).
+     * Purely a local-cache read; call [refreshAutocompleteSource] first to keep that cache warm.
+     * Dedupes by address (case-insensitive), preferring whichever cached message happened to carry
+     * a display name for it.
+     */
+    suspend fun getAutocompleteContacts(): List<EmailContact> {
+        val contacts = LinkedHashMap<String, EmailContact>()
+        for (account in accountRepository.getAllAccountsOnce().filter { it.isActive }) {
+            val sentFolderKey = findSentFolderKey(account.id) ?: continue
+            for (row in messageDao.getAddressColumns(account.id, sentFolderKey)) {
+                for (raw in splitAddressList(row.toAddresses) + splitAddressList(row.ccAddresses)) {
+                    val contact = parseContact(raw) ?: continue
+                    val key = contact.address.lowercase()
+                    val existing = contacts[key]
+                    if (existing == null || (existing.displayName.isNullOrBlank() && !contact.displayName.isNullOrBlank())) {
+                        contacts[key] = contact
+                    }
+                }
+            }
+        }
+        return contacts.values.sortedBy { (it.displayName ?: it.address).lowercase() }
+    }
+
+    private fun splitAddressList(raw: String?): List<String> =
+        raw?.split(";")?.map { it.trim() }?.filter { it.isNotBlank() } ?: emptyList()
+
+    private fun parseContact(raw: String): EmailContact? = try {
+        val address = InternetAddress(raw)
+        address.address?.takeIf { it.isNotBlank() }?.let { EmailContact(address.personal, it) }
+    } catch (e: AddressException) {
+        null
+    }
+
+    /** Raw RFC822 headers for one message — see ImapClient.fetchRawHeaders. Never cached; always a fresh round trip. */
+    suspend fun fetchMessageHeaders(accountId: String, folderKey: String, uid: Long): Result<String> {
+        val (imapConfig, folder) = resolveImapContext(accountId, folderKey)
+            ?: return Result.failure(IllegalStateException("Account or folder not found"))
+        return imapClient.fetchRawHeaders(imapConfig, folder.fullName, uid)
     }
 
     /**

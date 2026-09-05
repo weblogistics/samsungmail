@@ -7,12 +7,14 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.coursework.unifiedmail.data.contacts.DeviceContactsProvider
 import com.coursework.unifiedmail.data.files.AttachmentStorage
 import com.coursework.unifiedmail.data.files.PickedAttachment
 import com.coursework.unifiedmail.data.local.MessageEntity
 import com.coursework.unifiedmail.data.repository.AccountRepository
 import com.coursework.unifiedmail.data.repository.ComposeDraft
 import com.coursework.unifiedmail.data.repository.DraftContent
+import com.coursework.unifiedmail.data.repository.EmailContact
 import com.coursework.unifiedmail.data.repository.MailRepository
 import com.coursework.unifiedmail.domain.richtext.PendingStyle
 import com.coursework.unifiedmail.domain.richtext.RichText
@@ -69,6 +71,7 @@ class ComposeViewModel @Inject constructor(
     private val mailRepository: MailRepository,
     private val accountRepository: AccountRepository,
     private val attachmentStorage: AttachmentStorage,
+    private val deviceContactsProvider: DeviceContactsProvider,
 ) : ViewModel() {
 
     // Loading an existing draft (from the Drafts list) reuses its own id rather than minting a
@@ -92,6 +95,12 @@ class ComposeViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(ComposeUiState(mode = mode))
     val uiState: StateFlow<ComposeUiState> = _uiState.asStateFlow()
+
+    // Autocomplete suggestions for the To/Cc/Bcc fields — see MailRepository.getAutocompleteContacts.
+    // Kept separate from ComposeUiState since it's not part of this compose session's own draft
+    // state, just a read-only list the UI filters locally as the user types.
+    private val _contacts = MutableStateFlow<List<EmailContact>>(emptyList())
+    val contacts: StateFlow<List<EmailContact>> = _contacts.asStateFlow()
 
     // Only the immediate parent is tracked, not the full ancestor chain — good enough for
     // In-Reply-To/References on a reply; full conversation threading is a later milestone. Set
@@ -125,6 +134,43 @@ class ComposeViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.drop(1).debounce(AUTOSAVE_DEBOUNCE_MS).collect { state -> autosave(state) }
         }
+        // Autocomplete: show whatever's already cached/on-device immediately, then refresh Sent
+        // from the server in the background and reload — suggestions may pop in a moment late,
+        // but the field is never blocked waiting on a network round trip to become usable.
+        // Device contacts aren't re-queried by this second pass — the phone's contact list isn't
+        // expected to change mid-session — but see refreshContacts(), called once ComposeScreen's
+        // READ_CONTACTS permission request resolves, for the case contacts weren't grantable yet
+        // when this ran.
+        viewModelScope.launch {
+            loadContacts()
+            mailRepository.refreshAutocompleteSource()
+            loadContacts()
+        }
+    }
+
+    /**
+     * Merges MailRepository's Sent-derived contacts with the phone's own Contacts (see
+     * DeviceContactsProvider) into one deduped, sorted suggestion list. Phone contacts are added
+     * first so a saved contact's name — generally more trustworthy than whatever display name
+     * happened to be on a past sent message's header — wins when both sources know an address.
+     */
+    private suspend fun loadContacts() {
+        val merged = LinkedHashMap<String, EmailContact>()
+        fun add(contact: EmailContact) {
+            val key = contact.address.lowercase()
+            val existing = merged[key]
+            if (existing == null || (existing.displayName.isNullOrBlank() && !contact.displayName.isNullOrBlank())) {
+                merged[key] = contact
+            }
+        }
+        deviceContactsProvider.getContacts().forEach(::add)
+        mailRepository.getAutocompleteContacts().forEach(::add)
+        _contacts.value = merged.values.sortedBy { (it.displayName ?: it.address).lowercase() }
+    }
+
+    /** Called once ComposeScreen's READ_CONTACTS permission request resolves (granted or not) so a fresh grant is picked up without waiting for the next compose session. */
+    fun refreshContacts() {
+        viewModelScope.launch { loadContacts() }
     }
 
     private suspend fun loadExistingDraft(id: String) {

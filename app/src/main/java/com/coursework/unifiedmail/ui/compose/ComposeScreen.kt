@@ -1,5 +1,7 @@
 package com.coursework.unifiedmail.ui.compose
 
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -8,6 +10,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
@@ -44,12 +49,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.coursework.unifiedmail.ui.components.FlatTextField
 import com.coursework.unifiedmail.ui.message.HtmlMessageBody
+import com.coursework.unifiedmail.ui.theme.Spacing
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -59,8 +67,22 @@ fun ComposeScreen(
     viewModel: ComposeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsState()
+    val contacts by viewModel.contacts.collectAsState()
+    val context = LocalContext.current
     val attachmentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isNotEmpty()) viewModel.addAttachments(uris)
+    }
+    // Contacts feed autocomplete (see DeviceContactsProvider/ComposeViewModel.loadContacts) but
+    // aren't required to compose a message, so this is asked for in context here rather than
+    // eagerly at app launch — either way the callback reloads suggestions so a grant takes effect
+    // immediately instead of waiting for the next compose session.
+    val contactsPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        viewModel.refreshContacts()
+    }
+    LaunchedEffect(Unit) {
+        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) ==
+            PackageManager.PERMISSION_GRANTED
+        if (!granted) contactsPermission.launch(Manifest.permission.READ_CONTACTS)
     }
 
     LaunchedEffect(state.sent) {
@@ -110,7 +132,7 @@ fun ComposeScreen(
                         onClick = viewModel::send,
                         enabled = state.canSend,
                         colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.primary),
-                        modifier = Modifier.padding(horizontal = 8.dp),
+                        modifier = Modifier.padding(horizontal = Spacing.sm),
                     ) {
                         if (state.isSending) {
                             CircularProgressIndicator(
@@ -134,23 +156,34 @@ fun ComposeScreen(
             modifier = Modifier
                 .padding(padding)
                 .background(MaterialTheme.colorScheme.background)
-                .padding(16.dp)
-                .fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+                .padding(Spacing.md)
+                .fillMaxSize()
+                // Without this, the IME just overlaps whatever field the user is typing into
+                // instead of the layout shrinking to stay above it — see AndroidManifest's
+                // matching windowSoftInputMode="adjustResize" on MainActivity.
+                .imePadding()
+                // The whole form scrolls as one unit (rather than only the body field getting a
+                // fixed leftover slice of the screen via weight()) so that whichever field is
+                // focused — body included — can scroll up past To/Cc/Subject to stay above the
+                // keyboard instead of being hidden under it. Compose does this scrolling
+                // automatically for a focused/edited text field via its own BringIntoViewRequester
+                // once there's an actual scrollable ancestor to act on.
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(Spacing.xs),
         ) {
-            FlatTextField(
+            EmailAddressField(
                 value = state.to,
                 onValueChange = viewModel::onToChange,
+                suggestions = contacts,
                 label = { Text("To") },
-                placeholder = { Text("comma-separated addresses") },
                 modifier = Modifier.fillMaxWidth(),
             )
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                FlatTextField(
+            Row(verticalAlignment = Alignment.Top, modifier = Modifier.fillMaxWidth()) {
+                EmailAddressField(
                     value = state.cc,
                     onValueChange = viewModel::onCcChange,
+                    suggestions = contacts,
                     label = { Text("Cc") },
-                    placeholder = { Text("comma-separated addresses") },
                     modifier = Modifier.weight(1f),
                 )
                 // Bcc is rarely used and eats screen space every compose session doesn't need —
@@ -160,11 +193,11 @@ fun ComposeScreen(
                 }
             }
             if (state.showBcc) {
-                FlatTextField(
+                EmailAddressField(
                     value = state.bcc,
                     onValueChange = viewModel::onBccChange,
+                    suggestions = contacts,
                     label = { Text("Bcc") },
-                    placeholder = { Text("comma-separated addresses") },
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -181,8 +214,8 @@ fun ComposeScreen(
             )
             if (state.attachments.isNotEmpty()) {
                 LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                    modifier = Modifier.padding(vertical = Spacing.xs),
                 ) {
                     items(state.attachments, key = { it.localFilePath }) { attachment ->
                         AssistChip(
@@ -218,30 +251,39 @@ fun ComposeScreen(
                 onToggleBullet = viewModel::toggleBullet,
                 onToggleNumbering = viewModel::toggleNumbering,
                 onInsertLinkClick = viewModel::requestInsertLink,
+                // No weight() here anymore — the outer Column scrolls as a whole (see its
+                // modifier above), and weight() can't be combined with an unbounded/scrollable
+                // parent. The field just grows with its own content instead; heightIn keeps it a
+                // reasonably-sized tap target while still empty.
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(if (state.quotedHtml != null || state.quotedText != null) 0.5f else 1f, fill = true),
+                    .heightIn(min = 200.dp),
             )
 
             // Read-only — the rich-text editor above can't represent the original message's own
             // formatting/images, so a forwarded HTML original is shown as-is here instead of
             // being flattened into editable text (which was the actual bug this replaces).
             state.quotedHtml?.let { quotedHtml ->
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                HorizontalDivider(modifier = Modifier.padding(vertical = Spacing.xs))
                 Text(
                     text = "Forwarded message",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(bottom = 4.dp),
+                    modifier = Modifier.padding(bottom = Spacing.xs),
                 )
                 HtmlMessageBody(
                     html = quotedHtml,
                     // Already shown to the user once in MessageDetailScreen before they chose to
                     // forward it — no separate "show images" prompt needed a second time here.
                     showRemoteContent = true,
+                    // A WebView needs a real bounded height to measure correctly — unlike normal
+                    // Compose content it doesn't have an intrinsic "wrap content" size, and
+                    // weight()/fillMaxHeight() no longer apply now that the outer Column scrolls
+                    // (see its modifier above). It scrolls its own overflow internally within
+                    // this fixed box.
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(0.5f, fill = true),
+                        .height(320.dp),
                 )
             }
 
@@ -249,15 +291,14 @@ fun ComposeScreen(
             // original is kept out of the editable body so a horizontal rule can separate the new
             // message from the previous one, instead of the two running together as one blob.
             state.quotedText?.let { quotedText ->
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                HorizontalDivider(modifier = Modifier.padding(vertical = Spacing.xs))
                 Text(
                     text = quotedText,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(0.5f, fill = true)
-                        .verticalScroll(rememberScrollState()),
+                    // No weight()/own scroll anymore — it's plain flow content within the outer
+                    // Column's single scroll (see that Column's modifier above).
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
 

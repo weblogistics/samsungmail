@@ -1,10 +1,15 @@
 package com.coursework.unifiedmail.ui.compose
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.FormatListBulleted
@@ -14,16 +19,24 @@ import androidx.compose.material.icons.filled.FormatItalic
 import androidx.compose.material.icons.filled.FormatStrikethrough
 import androidx.compose.material.icons.filled.FormatUnderlined
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconToggleButton
-import androidx.compose.material3.TextField
+import androidx.compose.material3.LocalTextStyle
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
@@ -31,9 +44,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.dp
 import com.coursework.unifiedmail.domain.richtext.PendingStyle
 import com.coursework.unifiedmail.domain.richtext.TextRun
+import kotlinx.coroutines.launch
 
 /**
  * The compose body field: a small, real (not markdown-syntax) rich-text editor built on
@@ -41,6 +57,7 @@ import com.coursework.unifiedmail.domain.richtext.TextRun
  * this isn't a WebView/contenteditable editor. Bold/italic/underline/strikethrough, a bulleted or
  * numbered line prefix, and a plain-URL link — no colors, font sizes, or nested lists.
  */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun RichTextEditorField(
     runs: List<TextRun>,
@@ -56,6 +73,18 @@ fun RichTextEditorField(
     onInsertLinkClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // The default "scroll the focused field into view" behavior tracks the field's own bounds,
+    // not the cursor's line — for a field that grows as you type, pressing Enter can land the new
+    // (empty) line a frame behind that, under the keyboard, until something else nudges a rescroll.
+    // Recomputing the cursor's own rect on every layout pass and requesting exactly that into view
+    // keeps it synced with what's actually on screen instead of relying on that lag-prone default.
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    val coroutineScope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    // A little breathing room below the cursor line so it doesn't end up sitting flush against
+    // the keyboard's top edge.
+    val cursorMarginPx = with(density) { 24.dp.toPx() }
+
     Column(modifier = modifier) {
         Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
             IconToggleButton(checked = pendingStyle.bold, onCheckedChange = { onToggleBold() }) {
@@ -82,20 +111,49 @@ fun RichTextEditorField(
                 Icon(Icons.Filled.Link, contentDescription = "Insert link")
             }
         }
-        TextField(
-            value = TextFieldValue(annotatedString = runs.toAnnotatedString(), selection = selection),
+        val fieldValue = TextFieldValue(annotatedString = runs.toAnnotatedString(), selection = selection)
+        val interactionSource = remember { MutableInteractionSource() }
+        val colors = TextFieldDefaults.colors(
+            focusedContainerColor = Color.Transparent,
+            unfocusedContainerColor = Color.Transparent,
+            disabledContainerColor = Color.Transparent,
+        )
+        // Material3's TextField (in the version this project is on) doesn't expose onTextLayout,
+        // which is what's needed below to track the cursor's own rect — so this is built directly
+        // on BasicTextField, styled to match via TextFieldDefaults.DecorationBox rather than
+        // losing the app's usual field look.
+        BasicTextField(
+            value = fieldValue,
             onValueChange = onValueChange,
+            onTextLayout = { layoutResult: TextLayoutResult ->
+                val cursorIndex = selection.end.coerceIn(0, layoutResult.layoutInput.text.length)
+                val cursorRect = layoutResult.getCursorRect(cursorIndex)
+                val target = Rect(cursorRect.left, cursorRect.top, cursorRect.right, cursorRect.bottom + cursorMarginPx)
+                coroutineScope.launch { bringIntoViewRequester.bringIntoView(target) }
+            },
+            textStyle = LocalTextStyle.current.copy(color = MaterialTheme.colorScheme.onSurface),
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Text,
                 capitalization = KeyboardCapitalization.Sentences,
                 autoCorrectEnabled = true,
             ),
-            colors = TextFieldDefaults.colors(
-                focusedContainerColor = Color.Transparent,
-                unfocusedContainerColor = Color.Transparent,
-                disabledContainerColor = Color.Transparent,
-            ),
-            modifier = Modifier.fillMaxWidth(),
+            interactionSource = interactionSource,
+            modifier = Modifier
+                .fillMaxWidth()
+                .bringIntoViewRequester(bringIntoViewRequester),
+            decorationBox = { innerTextField ->
+                TextFieldDefaults.DecorationBox(
+                    value = fieldValue.text,
+                    innerTextField = innerTextField,
+                    enabled = true,
+                    singleLine = false,
+                    visualTransformation = VisualTransformation.None,
+                    interactionSource = interactionSource,
+                    colors = colors,
+                    contentPadding = TextFieldDefaults.contentPaddingWithoutLabel(),
+                )
+            },
         )
     }
 }

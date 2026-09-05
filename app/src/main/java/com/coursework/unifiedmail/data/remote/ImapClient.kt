@@ -4,6 +4,7 @@ import com.sun.mail.imap.IMAPFolder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Base64
+import java.util.Collections
 import java.util.Date
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -183,6 +184,18 @@ interface ImapClient {
         uid: Long,
         attachmentIndex: Int,
     ): Result<DownloadedAttachment>
+
+    /**
+     * Raw RFC822 header block for a message — the "view headers"/"view original" style debugging
+     * aid, one line per header in server order. Fetched fresh on demand rather than cached: only
+     * the handful of parsed fields actually used elsewhere (From/To/Subject/Message-ID/...) are
+     * ever persisted to MessageEntity, so the full header set has to come from the server.
+     */
+    suspend fun fetchRawHeaders(
+        config: ImapConfig,
+        folderFullName: String,
+        uid: Long,
+    ): Result<String>
 }
 
 /**
@@ -532,6 +545,31 @@ class ImapClientImpl @Inject constructor() : ImapClient {
                             )
                         }
                         ?: error("Attachment no longer exists on the server (uid=$uid, index=$attachmentIndex)")
+                } finally {
+                    folder.close(false)
+                }
+            } finally {
+                store.close()
+            }
+        }
+    }
+
+    override suspend fun fetchRawHeaders(
+        config: ImapConfig,
+        folderFullName: String,
+        uid: Long,
+    ): Result<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            val session = Session.getInstance(MailSessionFactory.imapProperties(config.security))
+            val store = session.getStore(MailSessionFactory.imapProtocol(config.security))
+            store.connect(config.host, config.port, config.username, config.password)
+            try {
+                val folder = store.getFolder(folderFullName) as IMAPFolder
+                folder.open(Folder.READ_ONLY)
+                try {
+                    val message = folder.getMessageByUID(uid)
+                        ?: error("Message no longer exists on the server (uid=$uid)")
+                    Collections.list(message.allHeaders).joinToString("\n") { header -> "${header.name}: ${header.value}" }
                 } finally {
                     folder.close(false)
                 }
