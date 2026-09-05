@@ -70,6 +70,12 @@ class MessageDetailViewModel @Inject constructor(
     private val _downloadedFileUri = MutableStateFlow<Pair<Uri, String?>?>(null)
     val downloadedFileUri: StateFlow<Pair<Uri, String?>?> = _downloadedFileUri.asStateFlow()
 
+    // One-shot confirmation for the explicit "Download" (save without opening) action — same
+    // fire-once shape as downloadedFileUri, shown as a snackbar and cleared via
+    // consumeDownloadSavedMessage().
+    private val _downloadSavedMessage = MutableStateFlow<String?>(null)
+    val downloadSavedMessage: StateFlow<String?> = _downloadSavedMessage.asStateFlow()
+
     // "View headers" dialog state. Headers are fetched fresh from the server on first open (see
     // openHeaders) and kept around for the rest of this screen's lifetime rather than
     // re-fetched every time the dialog is reopened.
@@ -140,6 +146,27 @@ class MessageDetailViewModel @Inject constructor(
 
     fun consumeDownloadedFile() {
         _downloadedFileUri.value = null
+    }
+
+    /** The explicit long-press "Download" action — saves to the real Downloads folder, but (unlike [downloadAttachment]) doesn't open it. */
+    fun saveAttachmentToDownloads(attachment: AttachmentEntity) {
+        if (_downloadingIndex.value != null) return
+        viewModelScope.launch {
+            _downloadingIndex.value = attachment.indexInMessage
+            _downloadError.value = null
+            val result = mailRepository.downloadAttachment(accountId, folderKey, uid, attachment.indexInMessage)
+            result.onSuccess { downloaded ->
+                attachmentStorage.saveToDownloads(downloaded)
+                _downloadSavedMessage.value = "Saved \"${downloaded.fileName}\" to Downloads"
+            }.onFailure {
+                _downloadError.value = describeMailError(it)
+            }
+            _downloadingIndex.value = null
+        }
+    }
+
+    fun consumeDownloadSavedMessage() {
+        _downloadSavedMessage.value = null
     }
 
     fun openHeaders() {

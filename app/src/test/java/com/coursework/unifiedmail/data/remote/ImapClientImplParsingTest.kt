@@ -122,6 +122,26 @@ class ImapClientImplParsingTest {
     }
 
     @Test
+    fun `an HTML-only message falls back to visible text, not the markup itself`() {
+        // Common real-world shape for a marketing/newsletter email: no text/plain alternative at
+        // all, and a sizeable inline stylesheet ahead of the actual visible content — previously
+        // the CSS rules leaked straight into the plain-text fallback used by the list preview.
+        val message = reparsed {
+            setFrom("sender@example.com")
+            subject = "Newsletter"
+            setContent(
+                "<html><head><style>body { color: #333; font-family: Arial; }</style></head>" +
+                    "<body><!--[if mso]>ignored<![endif]--><p>Hello&nbsp;there &amp; welcome</p></body></html>",
+                "text/html; charset=UTF-8",
+            )
+        }
+
+        val (plainText, _, _) = invokeParseBody(message)
+
+        assertEquals("Hello there & welcome", plainText)
+    }
+
+    @Test
     fun `an attachment with no Content-Disposition but a filename is still detected`() {
         // Some senders omit Content-Disposition and rely on the filename/Content-Type alone.
         val message = reparsed {

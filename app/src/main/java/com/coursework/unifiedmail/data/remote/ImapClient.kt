@@ -453,7 +453,8 @@ class ImapClientImpl @Inject constructor() : ImapClient {
         query: String,
     ): Result<List<ImapMessageInfo>> = withContext(Dispatchers.IO) {
         runCatching {
-            val session = Session.getInstance(MailSessionFactory.imapProperties(config.security))
+            // A longer read timeout than every other operation here — see SEARCH_READ_TIMEOUT_MS.
+            val session = Session.getInstance(MailSessionFactory.imapProperties(config.security, MailSessionFactory.SEARCH_READ_TIMEOUT_MS))
             val store = session.getStore(MailSessionFactory.imapProtocol(config.security))
             store.connect(config.host, config.port, config.username, config.password)
             try {
@@ -731,11 +732,51 @@ class ImapClientImpl @Inject constructor() : ImapClient {
         return result
     }
 
+    /**
+     * Falls back to this when a message has no text/plain part at all (see [parseBody]) — used
+     * for both the list preview and the plain-text detail view, so this has to produce actual
+     * readable text, not tag-soup. Previously only stripped tags themselves, which left a
+     * `<style>`/`<script>` block's *contents* (CSS rules, JS) behind as plain text — exactly what
+     * looked like "showing the code" in the list preview for HTML-only marketing/newsletter mail,
+     * which commonly embeds a large inline stylesheet.
+     */
     private fun stripHtml(html: String?): String? = html
+        // Whole-block removal — these two need their content gone, not just the surrounding tags.
+        ?.replace(Regex("(?is)<script[^>]*>.*?</script>"), " ")
+        ?.replace(Regex("(?is)<style[^>]*>.*?</style>"), " ")
+        // Outlook's conditional comments (<!--[if mso]>...<![endif]-->) and ordinary comments —
+        // otherwise their raw markup leaks through the same way script/style content did.
+        ?.replace(Regex("(?s)<!--.*?-->"), " ")
         ?.replace(Regex("<[^>]*>"), " ")
-        ?.replace(Regex("&nbsp;", RegexOption.IGNORE_CASE), " ")
+        ?.let(::decodeHtmlEntities)
         ?.replace(Regex("\\s+"), " ")
         ?.trim()
+
+    /**
+     * A small, deliberately non-exhaustive entity table — just the ones common enough in real
+     * email HTML (typographic quotes/dashes, &nbsp;, the XML-predefined five) that leaving them
+     * encoded would read as noise in a plain-text preview — plus generic numeric/hex entities.
+     */
+    private fun decodeHtmlEntities(text: String): String = text
+        .replace(Regex("&nbsp;", RegexOption.IGNORE_CASE), " ")
+        .replace(Regex("&(?:rsquo|#8217|#x2019);", RegexOption.IGNORE_CASE), "’")
+        .replace(Regex("&(?:lsquo|#8216|#x2018);", RegexOption.IGNORE_CASE), "‘")
+        .replace(Regex("&(?:rdquo|#8221|#x201d);", RegexOption.IGNORE_CASE), "”")
+        .replace(Regex("&(?:ldquo|#8220|#x201c);", RegexOption.IGNORE_CASE), "“")
+        .replace(Regex("&(?:mdash|#8212|#x2014);", RegexOption.IGNORE_CASE), "—")
+        .replace(Regex("&(?:ndash|#8211|#x2013);", RegexOption.IGNORE_CASE), "–")
+        .replace(Regex("&(?:hellip|#8230|#x2026);", RegexOption.IGNORE_CASE), "…")
+        .replace(Regex("&(?:apos|#39|#x27);", RegexOption.IGNORE_CASE), "'")
+        .replace(Regex("&quot;", RegexOption.IGNORE_CASE), "\"")
+        .replace(Regex("&lt;", RegexOption.IGNORE_CASE), "<")
+        .replace(Regex("&gt;", RegexOption.IGNORE_CASE), ">")
+        // Generic numeric entities not covered above — decoded last so none of the specific
+        // replacements re-match text a numeric decode just produced.
+        .replace(Regex("&#x([0-9a-fA-F]+);")) { m -> m.groupValues[1].toIntOrNull(16)?.let { runCatching { String(Character.toChars(it)) }.getOrNull() } ?: m.value }
+        .replace(Regex("&#(\\d+);")) { m -> m.groupValues[1].toIntOrNull()?.let { runCatching { String(Character.toChars(it)) }.getOrNull() } ?: m.value }
+        // &amp; last of all — decoding it earlier could turn e.g. "&amp;lt;" into "&lt;" and then
+        // have that wrongly decoded a second time by the &lt; rule above.
+        .replace(Regex("&amp;", RegexOption.IGNORE_CASE), "&")
 
     private companion object {
         const val BODY_TEXT_MAX_CHARS = 20_000

@@ -1,8 +1,11 @@
 package com.coursework.unifiedmail.data.files
 
+import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
+import android.os.Build
 import android.os.Environment
+import android.provider.MediaStore
 import android.provider.OpenableColumns
 import androidx.core.content.FileProvider
 import com.coursework.unifiedmail.data.remote.DownloadedAttachment
@@ -36,6 +39,32 @@ class AttachmentStorage @Inject constructor(
         val file = uniqueFile(dir, attachment.fileName)
         file.writeBytes(attachment.bytes)
         return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    }
+
+    /**
+     * Saves to the device's real, shared Downloads collection — reachable from the Files app or
+     * any other app, unlike [save]'s app-scoped location — for the explicit long-press "Download"
+     * action on an attachment (as opposed to "Open", which only needs a content:// URI to hand a
+     * viewer and uses [save]). MediaStore.Downloads needs no runtime permission from API 29
+     * onward; below that this just falls back to [save] rather than requesting
+     * WRITE_EXTERNAL_STORAGE for a shrinking minority of supported devices.
+     */
+    fun saveToDownloads(attachment: DownloadedAttachment): Uri {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return save(attachment)
+
+        val resolver = context.contentResolver
+        val values = ContentValues().apply {
+            put(MediaStore.Downloads.DISPLAY_NAME, attachment.fileName)
+            attachment.mimeType?.let { put(MediaStore.Downloads.MIME_TYPE, it) }
+            put(MediaStore.Downloads.IS_PENDING, 1)
+        }
+        val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+            ?: error("Could not create a Downloads entry for ${attachment.fileName}")
+        resolver.openOutputStream(uri)?.use { it.write(attachment.bytes) }
+        values.clear()
+        values.put(MediaStore.Downloads.IS_PENDING, 0)
+        resolver.update(uri, values, null, null)
+        return uri
     }
 
     /**

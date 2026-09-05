@@ -3,6 +3,7 @@ package com.coursework.unifiedmail.ui.message
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -28,7 +29,6 @@ import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.CircularProgressIndicator
@@ -38,6 +38,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -81,6 +84,7 @@ fun MessageDetailScreen(
     val downloadingIndex by viewModel.downloadingIndex.collectAsState()
     val downloadError by viewModel.downloadError.collectAsState()
     val downloadedFileUri by viewModel.downloadedFileUri.collectAsState()
+    val downloadSavedMessage by viewModel.downloadSavedMessage.collectAsState()
     val showHeaders by viewModel.showHeaders.collectAsState()
     val headers by viewModel.headers.collectAsState()
     val headersLoading by viewModel.headersLoading.collectAsState()
@@ -94,8 +98,12 @@ fun MessageDetailScreen(
     // Set when the user long-presses the sender name/avatar — the header row usually shows just
     // a display name, not the actual address it came from.
     var showSenderAddress by remember { mutableStateOf(false) }
+    // Set when the user long-presses an attachment chip — offers the explicit Open/Download
+    // choice, as opposed to a plain tap (which is just a shortcut for "Open").
+    var attachmentMenuFor by remember { mutableStateOf<AttachmentEntity?>(null) }
     val context = LocalContext.current
     val clipboardManager = LocalClipboardManager.current
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(movedAway) {
         if (movedAway) onBack()
@@ -115,6 +123,12 @@ fun MessageDetailScreen(
             "No app found to open this file"
         }
         viewModel.consumeDownloadedFile()
+    }
+
+    LaunchedEffect(downloadSavedMessage) {
+        val message = downloadSavedMessage ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
+        viewModel.consumeDownloadSavedMessage()
     }
 
     if (showMoveDialog) {
@@ -208,6 +222,37 @@ fun MessageDetailScreen(
         )
     }
 
+    attachmentMenuFor?.let { attachment ->
+        AlertDialog(
+            onDismissRequest = { attachmentMenuFor = null },
+            title = { Text(attachment.fileName) },
+            text = {
+                Column {
+                    // "Open" is the same download-then-ACTION_VIEW flow a plain tap on the chip
+                    // triggers; "Download" saves to the device's real Downloads folder (see
+                    // AttachmentStorage.saveToDownloads) without opening anything.
+                    TextButton(
+                        onClick = {
+                            attachmentMenuFor = null
+                            viewModel.downloadAttachment(attachment)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Open") }
+                    TextButton(
+                        onClick = {
+                            attachmentMenuFor = null
+                            viewModel.saveAttachmentToDownloads(attachment)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Download") }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { attachmentMenuFor = null }) { Text("Cancel") }
+            },
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -230,6 +275,7 @@ fun MessageDetailScreen(
                 },
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             if (message != null) {
                 BottomAppBar {
@@ -310,6 +356,7 @@ fun MessageDetailScreen(
                                     attachment = attachment,
                                     isDownloading = downloadingIndex == attachment.indexInMessage,
                                     onClick = { viewModel.downloadAttachment(attachment) },
+                                    onLongClick = { attachmentMenuFor = attachment },
                                 )
                             }
                         }
@@ -355,20 +402,36 @@ fun MessageDetailScreen(
     }
 }
 
+/**
+ * Styled to match AssistChip but built directly on [combinedClickable] instead — AssistChip only
+ * exposes a plain onClick, and its own internal clickable would swallow a long-press before an
+ * outer Modifier.combinedClickable wrapped around it ever saw one.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun AttachmentChip(attachment: AttachmentEntity, isDownloading: Boolean, onClick: () -> Unit) {
-    AssistChip(
-        onClick = onClick,
-        enabled = !isDownloading,
-        label = { Text(formatFileSize(attachment.sizeBytes)?.let { "${attachment.fileName} ($it)" } ?: attachment.fileName) },
-        leadingIcon = {
+private fun AttachmentChip(attachment: AttachmentEntity, isDownloading: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
+    Surface(
+        shape = AssistChipDefaults.shape,
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.combinedClickable(enabled = !isDownloading, onClick = onClick, onLongClick = onLongClick),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+            modifier = Modifier.padding(horizontal = Spacing.sm, vertical = Spacing.xs),
+        ) {
             if (isDownloading) {
-                CircularProgressIndicator(modifier = Modifier.size(AssistChipDefaults.IconSize))
+                CircularProgressIndicator(modifier = Modifier.size(AssistChipDefaults.IconSize), strokeWidth = 2.dp)
             } else {
                 Icon(Icons.Filled.AttachFile, contentDescription = null, modifier = Modifier.size(AssistChipDefaults.IconSize))
             }
-        },
-    )
+            Text(
+                text = formatFileSize(attachment.sizeBytes)?.let { "${attachment.fileName} ($it)" } ?: attachment.fileName,
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
+    }
 }
 
 private fun formatFileSize(bytes: Long?): String? {
