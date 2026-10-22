@@ -136,7 +136,7 @@ class MessageDetailViewModel @Inject constructor(
             val result = mailRepository.downloadAttachment(accountId, folderKey, uid, attachment.indexInMessage)
             result.onSuccess { downloaded ->
                 val uri = attachmentStorage.save(downloaded)
-                _downloadedFileUri.value = uri to downloaded.mimeType
+                _downloadedFileUri.value = uri to attachmentStorage.viewerMimeType(downloaded)
             }.onFailure {
                 _downloadError.value = describeMailError(it)
             }

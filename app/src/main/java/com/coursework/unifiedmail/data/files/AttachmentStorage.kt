@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.provider.OpenableColumns
+import android.webkit.MimeTypeMap
 import androidx.core.content.FileProvider
 import com.coursework.unifiedmail.data.remote.DownloadedAttachment
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -42,6 +43,19 @@ class AttachmentStorage @Inject constructor(
     }
 
     /**
+     * The MIME type to hand a viewer for [attachment]. Many senders label every attachment
+     * `application/octet-stream` (or nothing at all), which no specific viewer claims — Android
+     * then offers only a few catch-all apps instead of the default one for that file type. In
+     * that case, infer the type from the file extension instead.
+     */
+    fun viewerMimeType(attachment: DownloadedAttachment): String {
+        val declared = attachment.mimeType?.lowercase()?.takeIf { it.isNotBlank() && it !in GENERIC_MIME_TYPES }
+        if (declared != null) return declared
+        val extension = attachment.fileName.substringAfterLast('.', "").lowercase()
+        return MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "application/octet-stream"
+    }
+
+    /**
      * Saves to the device's real, shared Downloads collection — reachable from the Files app or
      * any other app, unlike [save]'s app-scoped location — for the explicit long-press "Download"
      * action on an attachment (as opposed to "Open", which only needs a content:// URI to hand a
@@ -55,7 +69,7 @@ class AttachmentStorage @Inject constructor(
         val resolver = context.contentResolver
         val values = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, attachment.fileName)
-            attachment.mimeType?.let { put(MediaStore.Downloads.MIME_TYPE, it) }
+            put(MediaStore.Downloads.MIME_TYPE, viewerMimeType(attachment))
             put(MediaStore.Downloads.IS_PENDING, 1)
         }
         val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
@@ -109,5 +123,9 @@ class AttachmentStorage @Inject constructor(
             counter++
         }
         return candidate
+    }
+
+    private companion object {
+        val GENERIC_MIME_TYPES = setOf("application/octet-stream", "application/x-download", "application/download", "application/unknown", "binary/octet-stream")
     }
 }

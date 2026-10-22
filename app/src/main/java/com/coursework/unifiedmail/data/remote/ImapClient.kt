@@ -16,8 +16,10 @@ import javax.mail.Multipart
 import javax.mail.Part
 import javax.mail.Session
 import javax.mail.UIDFolder
+import javax.mail.internet.ContentType
 import javax.mail.internet.InternetAddress
 import javax.mail.internet.MimePart
+import javax.mail.internet.MimeUtility
 import javax.mail.search.BodyTerm
 import javax.mail.search.ComparisonTerm
 import javax.mail.search.FromStringTerm
@@ -540,8 +542,8 @@ class ImapClientImpl @Inject constructor() : ImapClient {
                     findAttachmentPart(message, attachmentIndex, IntArray(1))
                         ?.let { part ->
                             DownloadedAttachment(
-                                fileName = part.fileName ?: "attachment",
-                                mimeType = runCatching { part.contentType }.getOrNull(),
+                                fileName = attachmentFileName(part),
+                                mimeType = attachmentMimeType(part),
                                 bytes = part.inputStream.use { it.readBytes() },
                             )
                         }
@@ -641,6 +643,24 @@ class ImapClientImpl @Inject constructor() : ImapClient {
      * attachment metadata ([parseBody]) and download-time part-location ([fetchAttachment]) can
      * never drift apart from each other.
      */
+    /**
+     * [Part.getFileName] doesn't decode RFC 2047 encoded-words (`=?UTF-8?B?...?=`), which many
+     * clients use for non-ASCII names — left encoded, the real extension is hidden, so nothing
+     * downstream can infer the file type from it.
+     */
+    private fun attachmentFileName(part: Part): String =
+        part.fileName?.let { runCatching { MimeUtility.decodeText(it) }.getOrDefault(it) }?.takeIf { it.isNotBlank() }
+            ?: "attachment"
+
+    /**
+     * [Part.getContentType] is the raw header, parameters and original casing included (e.g.
+     * `APPLICATION/PDF; name="a.pdf"`). Android matches intent MIME types exactly and
+     * case-sensitively, so handing that to ACTION_VIEW matches only catch-all apps — keep just the
+     * lowercased base type.
+     */
+    private fun attachmentMimeType(part: Part): String? =
+        runCatching { ContentType(part.contentType).baseType.lowercase() }.getOrNull()
+
     private fun isAttachmentPart(part: Part): Boolean =
         part.disposition?.equals(Part.ATTACHMENT, ignoreCase = true) == true ||
             (!part.fileName.isNullOrBlank() && !part.isMimeType("text/*"))
@@ -692,8 +712,8 @@ class ImapClientImpl @Inject constructor() : ImapClient {
                                 isAttachmentPart(bodyPart) -> {
                                     attachments.add(
                                         ImapAttachmentInfo(
-                                            fileName = bodyPart.fileName ?: "attachment",
-                                            mimeType = runCatching { bodyPart.contentType }.getOrNull(),
+                                            fileName = attachmentFileName(bodyPart),
+                                            mimeType = attachmentMimeType(bodyPart),
                                             sizeBytes = runCatching { bodyPart.size.toLong() }.getOrNull()?.takeIf { it >= 0 },
                                         ),
                                     )
