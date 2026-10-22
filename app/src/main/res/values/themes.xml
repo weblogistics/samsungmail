@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.UnifiedMail" parent="android:Theme.Material.Light.NoActionBar" />
+    <!-- Referenced by MainActivity in the manifest; no splash-specific styling yet. -->
+    <style name="Theme.UnifiedMail.Splash" parent="Theme.UnifiedMail" />
 </resources>
