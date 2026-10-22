@@ -81,34 +81,6 @@ fun MessageListItem(
     onToggleSelect: () -> Unit = {},
 ) {
     val haptic = LocalHapticFeedback.current
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
-            val action = when (value) {
-                SwipeToDismissBoxValue.StartToEnd -> swipeRightAction
-                SwipeToDismissBoxValue.EndToStart -> swipeLeftAction
-                SwipeToDismissBoxValue.Settled -> SwipeAction.NONE
-            }
-            when (action) {
-                SwipeAction.TOGGLE_READ -> {
-                    onToggleRead()
-                    false
-                }
-                SwipeAction.REMOVE -> {
-                    onRemove()
-                    true
-                }
-                SwipeAction.ARCHIVE -> {
-                    onArchive()
-                    true
-                }
-                SwipeAction.TOGGLE_FLAG -> {
-                    onToggleFlag()
-                    false
-                }
-                SwipeAction.NONE -> false
-            }
-        },
-    )
 
     Row(modifier = Modifier.fillMaxWidth()) {
         if (accountColor != null) {
@@ -120,18 +92,14 @@ fun MessageListItem(
             )
         }
         Box(modifier = Modifier.weight(1f)) {
-            SwipeToDismissBox(
-                state = dismissState,
-                enableDismissFromStartToEnd = !selectionModeActive && swipeRightAction != SwipeAction.NONE,
-                enableDismissFromEndToStart = !selectionModeActive && swipeLeftAction != SwipeAction.NONE,
-                backgroundContent = {
-                    val action = when (dismissState.dismissDirection) {
-                        SwipeToDismissBoxValue.StartToEnd -> swipeRightAction
-                        SwipeToDismissBoxValue.EndToStart -> swipeLeftAction
-                        SwipeToDismissBoxValue.Settled -> SwipeAction.NONE
-                    }
-                    SwipeBackground(action, dismissState.dismissDirection)
-                },
+            SwipeActionsBox(
+                swipeRightAction = swipeRightAction,
+                swipeLeftAction = swipeLeftAction,
+                onToggleRead = onToggleRead,
+                onRemove = onRemove,
+                onArchive = onArchive,
+                onToggleFlag = onToggleFlag,
+                enabled = !selectionModeActive,
             ) {
                 val fontWeight = if (message.isRead) FontWeight.Normal else FontWeight.Bold
                 val senderLabel = message.fromPersonal?.takeIf { it.isNotBlank() }
@@ -215,6 +183,69 @@ fun MessageListItem(
                 )
             }
         }
+    }
+}
+
+/**
+ * The configurable swipe gestures behind [MessageListItem], split out so other message lists (the
+ * thread screen) behave identically. A direction bound to NONE, or every direction while
+ * [enabled] is false, has its gesture disabled outright.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SwipeActionsBox(
+    swipeRightAction: SwipeAction,
+    swipeLeftAction: SwipeAction,
+    onToggleRead: () -> Unit,
+    onRemove: () -> Unit,
+    onArchive: () -> Unit,
+    onToggleFlag: () -> Unit,
+    enabled: Boolean = true,
+    content: @Composable () -> Unit,
+) {
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            val action = when (value) {
+                SwipeToDismissBoxValue.StartToEnd -> swipeRightAction
+                SwipeToDismissBoxValue.EndToStart -> swipeLeftAction
+                SwipeToDismissBoxValue.Settled -> SwipeAction.NONE
+            }
+            when (action) {
+                SwipeAction.TOGGLE_READ -> {
+                    onToggleRead()
+                    false
+                }
+                SwipeAction.REMOVE -> {
+                    onRemove()
+                    true
+                }
+                SwipeAction.ARCHIVE -> {
+                    onArchive()
+                    true
+                }
+                SwipeAction.TOGGLE_FLAG -> {
+                    onToggleFlag()
+                    false
+                }
+                SwipeAction.NONE -> false
+            }
+        },
+    )
+
+    SwipeToDismissBox(
+        state = dismissState,
+        enableDismissFromStartToEnd = enabled && swipeRightAction != SwipeAction.NONE,
+        enableDismissFromEndToStart = enabled && swipeLeftAction != SwipeAction.NONE,
+        backgroundContent = {
+            val action = when (dismissState.dismissDirection) {
+                SwipeToDismissBoxValue.StartToEnd -> swipeRightAction
+                SwipeToDismissBoxValue.EndToStart -> swipeLeftAction
+                SwipeToDismissBoxValue.Settled -> SwipeAction.NONE
+            }
+            SwipeBackground(action, dismissState.dismissDirection)
+        },
+    ) {
+        content()
     }
 }
 

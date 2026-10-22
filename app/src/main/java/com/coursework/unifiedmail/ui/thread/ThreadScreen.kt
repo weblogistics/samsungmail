@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -20,11 +21,17 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -32,13 +39,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.coursework.unifiedmail.data.local.MessageEntity
+import com.coursework.unifiedmail.ui.components.EmptyState
 import com.coursework.unifiedmail.ui.components.SenderAvatar
 import com.coursework.unifiedmail.ui.components.formatRelativeDate
+import com.coursework.unifiedmail.ui.components.showSnackbarFor
+import com.coursework.unifiedmail.ui.inbox.SwipeActionsBox
 
 /**
  * Lists every message in a conversation so the user can pick which one to open — a threaded row
- * in the inbox otherwise only ever showed the latest message. No swipe/bulk-selection here (that
- * belongs to the inbox list); tapping a row just opens that specific message via [onMessageClick].
+ * in the inbox otherwise only ever showed the latest message. Rows take the same configurable
+ * swipe actions as the inbox (with Undo for moves); bulk selection stays an inbox-only feature.
+ * Tapping a row opens that specific message via [onMessageClick].
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -48,8 +59,28 @@ fun ThreadScreen(
     viewModel: ThreadViewModel = hiltViewModel(),
 ) {
     val messages by viewModel.messages.collectAsState()
+    val settings by viewModel.settings.collectAsState()
+    val undoableAction by viewModel.undoableAction.collectAsState()
+    val error by viewModel.error.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(undoableAction) {
+        val action = undoableAction ?: return@LaunchedEffect
+        val result = snackbarHostState.showSnackbarFor(
+            message = action.label,
+            actionLabel = "Undo",
+            durationMillis = settings.undoDurationSeconds * 1000L,
+        )
+        if (result == SnackbarResult.ActionPerformed) viewModel.undoLastMove() else viewModel.dismissUndo()
+    }
+    LaunchedEffect(error) {
+        val message = error ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message = message, duration = SnackbarDuration.Long)
+        viewModel.dismissError()
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(if (messages.size > 1) "${messages.size} messages" else "Thread") },
@@ -61,12 +92,26 @@ fun ThreadScreen(
             )
         },
     ) { padding ->
+        // Stays on screen (rather than popping back) once the last message is swiped away, so its
+        // Undo snackbar is still there to use.
+        if (messages.isEmpty() && undoableAction != null) {
+            EmptyState(icon = Icons.Filled.Email, message = "No messages left in this thread", modifier = Modifier.padding(padding))
+        }
         LazyColumn(modifier = Modifier.padding(padding).fillMaxSize()) {
             items(messages, key = { it.id }) { message ->
-                ThreadMessageRow(
-                    message = message,
-                    onClick = { onMessageClick(viewModel.folderKey, message.uid) },
-                )
+                SwipeActionsBox(
+                    swipeRightAction = settings.swipeRightAction,
+                    swipeLeftAction = settings.swipeLeftAction,
+                    onToggleRead = { viewModel.setMessageRead(message, !message.isRead) },
+                    onRemove = { viewModel.moveToTrash(message) },
+                    onArchive = { viewModel.archiveMessage(message) },
+                    onToggleFlag = { viewModel.setMessageFlagged(message, !message.isFlagged) },
+                ) {
+                    ThreadMessageRow(
+                        message = message,
+                        onClick = { onMessageClick(viewModel.folderKey, message.uid) },
+                    )
+                }
                 HorizontalDivider()
             }
         }
