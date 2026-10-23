@@ -9,7 +9,9 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -60,6 +62,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -299,18 +302,6 @@ fun MessageDetailScreen(
                             Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Next email")
                         }
                     }
-                    if (message != null) {
-                        IconButton(onClick = viewModel::toggleRead) {
-                            if (message?.isRead == true) {
-                                Icon(Icons.Filled.MarkEmailUnread, contentDescription = "Mark unread")
-                            } else {
-                                Icon(Icons.Filled.MarkEmailRead, contentDescription = "Mark read")
-                            }
-                        }
-                    }
-                    IconButton(onClick = viewModel::moveToTrash) {
-                        Icon(Icons.Filled.Delete, contentDescription = "Delete")
-                    }
                     Box {
                         IconButton(onClick = { showOverflowMenu = true }) {
                             Icon(Icons.Filled.MoreVert, contentDescription = "More options")
@@ -340,28 +331,24 @@ fun MessageDetailScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             if (message != null) {
+                // Icon-over-label actions so all five fit even in the narrow wide-screen pane; the
+                // top bar is kept to navigation (back, full screen, previous/next, overflow).
                 BottomAppBar {
-                    TextButton(
-                        onClick = { onReply(viewModel.accountId, viewModel.folderKey, viewModel.uid) },
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.Reply, contentDescription = null)
-                        Text(" Reply")
+                    BottomBarAction(Icons.AutoMirrored.Filled.Reply, "Reply") {
+                        onReply(viewModel.accountId, viewModel.folderKey, viewModel.uid)
                     }
-                    TextButton(
-                        onClick = { onReplyAll(viewModel.accountId, viewModel.folderKey, viewModel.uid) },
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.ReplyAll, contentDescription = null)
-                        Text(" Reply all")
+                    BottomBarAction(Icons.AutoMirrored.Filled.ReplyAll, "Reply all") {
+                        onReplyAll(viewModel.accountId, viewModel.folderKey, viewModel.uid)
                     }
-                    TextButton(
-                        onClick = { onForward(viewModel.accountId, viewModel.folderKey, viewModel.uid) },
-                        modifier = Modifier.weight(1f),
-                    ) {
-                        Icon(Icons.AutoMirrored.Filled.Forward, contentDescription = null)
-                        Text(" Forward")
+                    BottomBarAction(Icons.AutoMirrored.Filled.Forward, "Forward") {
+                        onForward(viewModel.accountId, viewModel.folderKey, viewModel.uid)
                     }
+                    if (message?.isRead == true) {
+                        BottomBarAction(Icons.Filled.MarkEmailUnread, "Unread", onClick = viewModel::toggleRead)
+                    } else {
+                        BottomBarAction(Icons.Filled.MarkEmailRead, "Read", onClick = viewModel::toggleRead)
+                    }
+                    BottomBarAction(Icons.Filled.Delete, "Delete", onClick = viewModel::moveToTrash)
                 }
             }
         },
@@ -460,6 +447,21 @@ fun MessageDetailScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+/** One evenly-weighted bottom-bar action: icon with a small one-line label beneath it. */
+@Composable
+private fun RowScope.BottomBarAction(icon: ImageVector, label: String, onClick: () -> Unit) {
+    TextButton(
+        onClick = onClick,
+        modifier = Modifier.weight(1f),
+        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp),
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(icon, contentDescription = null)
+            Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }

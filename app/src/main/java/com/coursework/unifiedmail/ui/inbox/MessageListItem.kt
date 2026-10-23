@@ -92,14 +92,15 @@ fun MessageListItem(
 ) {
     val haptic = LocalHapticFeedback.current
 
-    // The account stripe is drawn into the space left by the start padding rather than laid out as
-    // a fillMaxHeight() sibling — inside a LazyColumn item there's no bounded height for that to
-    // fill, so it collapsed to nothing.
+    // The account stripe only shows on unread rows — a second unread cue, in the account's colour,
+    // rather than a constant stripe competing with it. Drawn into the space left by the start
+    // padding (kept on every row so text doesn't shift) rather than laid out as a fillMaxHeight()
+    // sibling — inside a LazyColumn item there's no bounded height for that to fill.
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .drawBehind {
-                if (accountColor != null) drawRect(accountColor, size = Size(ACCOUNT_STRIPE_WIDTH.toPx(), size.height))
+                if (accountColor != null && hasUnread) drawRect(accountColor, size = Size(ACCOUNT_STRIPE_WIDTH.toPx(), size.height))
             }
             .padding(start = if (accountColor != null) ACCOUNT_STRIPE_WIDTH else 0.dp),
     ) {

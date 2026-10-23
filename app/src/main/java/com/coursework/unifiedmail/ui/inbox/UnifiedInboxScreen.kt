@@ -171,6 +171,24 @@ fun UnifiedInboxScreen(
         )
     }
 
+    val composeButton: @Composable () -> Unit = {
+        // Hidden while scrolling down through a long list so it doesn't sit over content;
+        // reappears the moment the user scrolls back up (or stops).
+        AnimatedVisibility(visible = isScrollingUp && !showDetailFullScreen, enter = fadeIn(), exit = fadeOut()) {
+            FloatingActionButton(
+                onClick = {
+                    if (accounts.size <= 1) {
+                        accounts.firstOrNull()?.let { onComposeClick(it.id) }
+                    } else {
+                        showAccountPicker = true
+                    }
+                },
+            ) {
+                Icon(Icons.Filled.Edit, contentDescription = "Compose")
+            }
+        }
+    }
+
     ModalNavigationDrawer(
         drawerState = drawerState,
         drawerContent = {
@@ -240,51 +258,40 @@ fun UnifiedInboxScreen(
                     )
                 }
             },
-            floatingActionButton = {
-                // Hidden while scrolling down through a long list so it doesn't sit over content;
-                // reappears the moment the user scrolls back up (or stops).
-                AnimatedVisibility(visible = isScrollingUp && !showDetailFullScreen,enter = fadeIn(), exit = fadeOut()) {
-                    FloatingActionButton(
-                        onClick = {
-                            if (accounts.size <= 1) {
-                                accounts.firstOrNull()?.let { onComposeClick(it.id) }
-                            } else {
-                                showAccountPicker = true
-                            }
-                        },
-                    ) {
-                        Icon(Icons.Filled.Edit, contentDescription = "Compose")
-                    }
-                }
-            },
+            // On wide screens the button sits in the list pane instead (below), so it doesn't cover
+            // the open message's bottom bar.
+            floatingActionButton = { if (!isWideScreen) composeButton() },
         ) { padding ->
             if (isWideScreen) {
                 Row(modifier = Modifier.padding(padding).fillMaxSize()) {
                     if (!showDetailFullScreen) {
-                        UnifiedMessageListPane(
-                            modifier = Modifier.width(paneWidthDp.dp),
-                            messages = messages,
-                            accounts = accounts,
-                            isSyncing = isSyncing,
-                            lastSyncedAt = lastSyncedAt,
-                            searchQuery = searchQuery,
-                            anyFilterActive = anyFilterActive,
-                            isServerSearching = isServerSearching,
-                            settings = settings,
-                            selectedIds = selectedIds,
-                            selectionModeActive = selectionModeActive,
-                            hasAttachmentFilter = hasAttachmentFilter,
-                            unreadOnlyFilter = unreadOnlyFilter,
-                            flaggedOnlyFilter = flaggedOnlyFilter,
-                            viewModel = viewModel,
-                            onMessageClick = { accountId, uid ->
-                                detailNavController.navigate(detailPaneMessageRoute(accountId, MailRepository.INBOX_FOLDER_KEY, uid))
-                            },
-                            onThreadClick = { accountId, conversationId ->
-                                detailNavController.navigate(detailPaneThreadRoute(accountId, MailRepository.INBOX_FOLDER_KEY, conversationId))
-                            },
-                            listState = listState,
-                        )
+                        Box(modifier = Modifier.width(paneWidthDp.dp)) {
+                            UnifiedMessageListPane(
+                                modifier = Modifier.fillMaxSize(),
+                                messages = messages,
+                                accounts = accounts,
+                                isSyncing = isSyncing,
+                                lastSyncedAt = lastSyncedAt,
+                                searchQuery = searchQuery,
+                                anyFilterActive = anyFilterActive,
+                                isServerSearching = isServerSearching,
+                                settings = settings,
+                                selectedIds = selectedIds,
+                                selectionModeActive = selectionModeActive,
+                                hasAttachmentFilter = hasAttachmentFilter,
+                                unreadOnlyFilter = unreadOnlyFilter,
+                                flaggedOnlyFilter = flaggedOnlyFilter,
+                                viewModel = viewModel,
+                                onMessageClick = { accountId, uid ->
+                                    detailNavController.navigate(detailPaneMessageRoute(accountId, MailRepository.INBOX_FOLDER_KEY, uid))
+                                },
+                                onThreadClick = { accountId, conversationId ->
+                                    detailNavController.navigate(detailPaneThreadRoute(accountId, MailRepository.INBOX_FOLDER_KEY, conversationId))
+                                },
+                                listState = listState,
+                            )
+                            Box(modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)) { composeButton() }
+                        }
                         SplitPaneDivider(
                             onDrag = { deltaDp ->
                                 draggedPaneWidthDp = ((draggedPaneWidthDp ?: settings.listPaneWidthDp.toFloat()) + deltaDp)

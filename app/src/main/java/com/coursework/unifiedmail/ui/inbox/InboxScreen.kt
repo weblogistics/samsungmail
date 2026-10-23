@@ -184,6 +184,16 @@ fun InboxScreen(
         )
     }
 
+    val composeButton: @Composable () -> Unit = {
+        // Hidden while scrolling down through a long list so it doesn't sit over content;
+        // reappears the moment the user scrolls back up (or stops).
+        AnimatedVisibility(visible = isScrollingUp && !showDetailFullScreen, enter = fadeIn(), exit = fadeOut()) {
+            FloatingActionButton(onClick = onComposeClick) {
+                Icon(Icons.Filled.Edit, contentDescription = "Compose")
+            }
+        }
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -246,43 +256,40 @@ fun InboxScreen(
                 )
             }
         },
-        floatingActionButton = {
-            // Hidden while scrolling down through a long list so it doesn't sit over content;
-            // reappears the moment the user scrolls back up (or stops).
-            AnimatedVisibility(visible = isScrollingUp && !showDetailFullScreen,enter = fadeIn(), exit = fadeOut()) {
-                FloatingActionButton(onClick = onComposeClick) {
-                    Icon(Icons.Filled.Edit, contentDescription = "Compose")
-                }
-            }
-        },
+        // On wide screens the button sits in the list pane instead (below), so it doesn't cover
+        // the open message's bottom bar.
+        floatingActionButton = { if (!isWideScreen) composeButton() },
     ) { padding ->
         if (isWideScreen) {
             Row(modifier = Modifier.padding(padding).fillMaxSize()) {
                 if (!showDetailFullScreen) {
-                    InboxMessageListPane(
-                        modifier = Modifier.width(paneWidthDp.dp),
-                        messages = messages,
-                        isSyncing = isSyncing,
-                        lastSyncedAt = lastSyncedAt,
-                        searchQuery = searchQuery,
-                        anyFilterActive = anyFilterActive,
-                        isServerSearching = isServerSearching,
-                        isLoadingOlder = isLoadingOlder,
-                        settings = settings,
-                        selectedIds = selectedIds,
-                        selectionModeActive = selectionModeActive,
-                        hasAttachmentFilter = hasAttachmentFilter,
-                        unreadOnlyFilter = unreadOnlyFilter,
-                        flaggedOnlyFilter = flaggedOnlyFilter,
-                        viewModel = viewModel,
-                        onMessageClick = { folderKey, uid ->
-                            detailNavController.navigate(detailPaneMessageRoute(viewModel.accountId, folderKey, uid))
-                        },
-                        onThreadClick = { folderKey, conversationId ->
-                            detailNavController.navigate(detailPaneThreadRoute(viewModel.accountId, folderKey, conversationId))
-                        },
-                        listState = listState,
-                    )
+                    Box(modifier = Modifier.width(paneWidthDp.dp)) {
+                        InboxMessageListPane(
+                            modifier = Modifier.fillMaxSize(),
+                            messages = messages,
+                            isSyncing = isSyncing,
+                            lastSyncedAt = lastSyncedAt,
+                            searchQuery = searchQuery,
+                            anyFilterActive = anyFilterActive,
+                            isServerSearching = isServerSearching,
+                            isLoadingOlder = isLoadingOlder,
+                            settings = settings,
+                            selectedIds = selectedIds,
+                            selectionModeActive = selectionModeActive,
+                            hasAttachmentFilter = hasAttachmentFilter,
+                            unreadOnlyFilter = unreadOnlyFilter,
+                            flaggedOnlyFilter = flaggedOnlyFilter,
+                            viewModel = viewModel,
+                            onMessageClick = { folderKey, uid ->
+                                detailNavController.navigate(detailPaneMessageRoute(viewModel.accountId, folderKey, uid))
+                            },
+                            onThreadClick = { folderKey, conversationId ->
+                                detailNavController.navigate(detailPaneThreadRoute(viewModel.accountId, folderKey, conversationId))
+                            },
+                            listState = listState,
+                        )
+                        Box(modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)) { composeButton() }
+                    }
                     SplitPaneDivider(
                         onDrag = { deltaDp ->
                             draggedPaneWidthDp = ((draggedPaneWidthDp ?: settings.listPaneWidthDp.toFloat()) + deltaDp)
