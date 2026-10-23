@@ -13,6 +13,8 @@ import com.coursework.unifiedmail.data.repository.MoveOutcome
 import com.coursework.unifiedmail.data.repository.SyncOutcome
 import com.coursework.unifiedmail.data.settings.AppSettings
 import com.coursework.unifiedmail.data.settings.SettingsRepository
+import com.coursework.unifiedmail.ui.message.MessageKey
+import com.coursework.unifiedmail.ui.message.ReadingOrder
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -36,6 +38,7 @@ class InboxViewModel @Inject constructor(
     private val mailRepository: MailRepository,
     private val accountRepository: AccountRepository,
     private val settingsRepository: SettingsRepository,
+    private val readingOrder: ReadingOrder,
 ) : ViewModel() {
 
     val accountId: String = checkNotNull(savedStateHandle["accountId"])
@@ -307,6 +310,11 @@ class InboxViewModel @Inject constructor(
                 _syncError.value = result.reason
             }
         }
+    }
+
+    /** Called just before opening a message from this list, so its previous/next buttons follow the list as shown. */
+    fun recordReadingOrder() {
+        readingOrder.set(messages.value.map { MessageKey(it.latestMessage.accountId, it.latestMessage.folderName, it.latestMessage.uid) })
     }
 
     fun toggleSelection(messageId: String) {

@@ -10,6 +10,8 @@ import com.coursework.unifiedmail.data.settings.AppSettings
 import com.coursework.unifiedmail.data.settings.SettingsRepository
 import com.coursework.unifiedmail.ui.inbox.UndoableMoveAction
 import com.coursework.unifiedmail.ui.inbox.undoMoves
+import com.coursework.unifiedmail.ui.message.MessageKey
+import com.coursework.unifiedmail.ui.message.ReadingOrder
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -25,6 +27,7 @@ class ThreadViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val mailRepository: MailRepository,
     settingsRepository: SettingsRepository,
+    private val readingOrder: ReadingOrder,
 ) : ViewModel() {
 
     val accountId: String = checkNotNull(savedStateHandle["accountId"])
@@ -43,6 +46,11 @@ class ThreadViewModel @Inject constructor(
 
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
+
+    /** Called just before opening a message from this thread, so its previous/next buttons step through the thread. */
+    fun recordReadingOrder() {
+        readingOrder.set(messages.value.map { MessageKey(it.accountId, it.folderName, it.uid) })
+    }
 
     fun setMessageRead(message: MessageEntity, isRead: Boolean) {
         viewModelScope.launch {

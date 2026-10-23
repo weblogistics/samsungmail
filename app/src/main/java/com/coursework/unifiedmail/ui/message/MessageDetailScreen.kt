@@ -28,10 +28,17 @@ import androidx.compose.material.icons.automirrored.filled.ReplyAll
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.MarkEmailRead
+import androidx.compose.material.icons.filled.MarkEmailUnread
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -58,6 +65,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.coursework.unifiedmail.data.local.AttachmentEntity
@@ -74,6 +82,8 @@ fun MessageDetailScreen(
     onForward: (accountId: String, folderKey: String, uid: Long) -> Unit,
     // Extra top-bar actions supplied by the host — the wide-screen pane's full-screen toggle.
     paneActions: @Composable () -> Unit = {},
+    // Opens another message in place of this one (previous/next). Null hides those buttons.
+    onOpenMessage: ((accountId: String, folderKey: String, uid: Long) -> Unit)? = null,
     viewModel: MessageDetailViewModel = hiltViewModel(),
 ) {
     val message by viewModel.message.collectAsState()
@@ -92,6 +102,7 @@ fun MessageDetailScreen(
     val headersLoading by viewModel.headersLoading.collectAsState()
     val headersError by viewModel.headersError.collectAsState()
     var showMoveDialog by remember { mutableStateOf(false) }
+    var showOverflowMenu by remember { mutableStateOf(false) }
     var showRemoteContent by remember { mutableStateOf(false) }
     var openError by remember { mutableStateOf<String?>(null) }
     // Set when the user long-presses a link in the HTML body — see HtmlMessageBody's
@@ -258,7 +269,13 @@ fun MessageDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(message?.subject?.takeIf { it.isNotBlank() } ?: "(no subject)") },
+                title = {
+                    Text(
+                        message?.subject?.takeIf { it.isNotBlank() } ?: "(no subject)",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
@@ -266,14 +283,56 @@ fun MessageDetailScreen(
                 },
                 actions = {
                     paneActions()
-                    IconButton(onClick = viewModel::openHeaders) {
-                        Icon(Icons.Filled.Info, contentDescription = "View headers")
+                    // Previous/next step through the list this message was opened from (see
+                    // ReadingOrder); hidden when there's no such list or the host can't navigate.
+                    if (onOpenMessage != null && (viewModel.previousMessage != null || viewModel.nextMessage != null)) {
+                        IconButton(
+                            onClick = { viewModel.previousMessage?.let { onOpenMessage(it.accountId, it.folderKey, it.uid) } },
+                            enabled = viewModel.previousMessage != null,
+                        ) {
+                            Icon(Icons.Filled.KeyboardArrowUp, contentDescription = "Previous email")
+                        }
+                        IconButton(
+                            onClick = { viewModel.nextMessage?.let { onOpenMessage(it.accountId, it.folderKey, it.uid) } },
+                            enabled = viewModel.nextMessage != null,
+                        ) {
+                            Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Next email")
+                        }
                     }
-                    IconButton(onClick = { showMoveDialog = true }) {
-                        Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = "Move to")
+                    if (message != null) {
+                        IconButton(onClick = viewModel::toggleRead) {
+                            if (message?.isRead == true) {
+                                Icon(Icons.Filled.MarkEmailUnread, contentDescription = "Mark unread")
+                            } else {
+                                Icon(Icons.Filled.MarkEmailRead, contentDescription = "Mark read")
+                            }
+                        }
                     }
                     IconButton(onClick = viewModel::moveToTrash) {
                         Icon(Icons.Filled.Delete, contentDescription = "Delete")
+                    }
+                    Box {
+                        IconButton(onClick = { showOverflowMenu = true }) {
+                            Icon(Icons.Filled.MoreVert, contentDescription = "More options")
+                        }
+                        DropdownMenu(expanded = showOverflowMenu, onDismissRequest = { showOverflowMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("Move to") },
+                                leadingIcon = { Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null) },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    showMoveDialog = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("View headers") },
+                                leadingIcon = { Icon(Icons.Filled.Info, contentDescription = null) },
+                                onClick = {
+                                    showOverflowMenu = false
+                                    viewModel.openHeaders()
+                                },
+                            )
+                        }
                     }
                 },
             )

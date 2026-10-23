@@ -441,6 +441,7 @@ private fun UnifiedMessageListPane(
                                 if (summary.messageCount > 1) {
                                     onThreadClick(message.accountId, message.conversationId)
                                 } else {
+                                    viewModel.recordReadingOrder()
                                     onMessageClick(message.accountId, message.uid)
                                 }
                             },

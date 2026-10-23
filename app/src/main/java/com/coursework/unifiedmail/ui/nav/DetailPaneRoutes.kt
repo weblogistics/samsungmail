@@ -97,6 +97,12 @@ fun MessageDetailPane(
                 onReplyAll = onReplyAll,
                 onForward = onForward,
                 paneActions = paneActions,
+                // Replaces this message rather than stacking on it, so Back returns to the list/thread.
+                onOpenMessage = { accountId, folderKey, uid ->
+                    navController.navigate(DetailPaneRoutes.messageDetail(accountId, folderKey, uid)) {
+                        popUpTo(DetailPaneRoutes.MESSAGE_DETAIL) { inclusive = true }
+                    }
+                },
             )
         }
         composable(

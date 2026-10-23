@@ -31,11 +31,22 @@ class MessageDetailViewModel @Inject constructor(
     private val attachmentStorage: AttachmentStorage,
     private val accountRepository: AccountRepository,
     private val settingsRepository: SettingsRepository,
+    readingOrder: ReadingOrder,
 ) : ViewModel() {
 
     val accountId: String = checkNotNull(savedStateHandle["accountId"])
     val folderKey: String = savedStateHandle["folderKey"] ?: MailRepository.INBOX_FOLDER_KEY
     val uid: Long = checkNotNull(savedStateHandle["uid"])
+
+    /** The messages listed above/below this one where it was opened from — see [ReadingOrder]. */
+    val previousMessage: MessageKey?
+    val nextMessage: MessageKey?
+
+    init {
+        val (previous, next) = readingOrder.neighbours(MessageKey(accountId, folderKey, uid))
+        previousMessage = previous
+        nextMessage = next
+    }
 
     val settings: StateFlow<AppSettings> = settingsRepository.settings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppSettings())
@@ -103,6 +114,14 @@ class MessageDetailViewModel @Inject constructor(
             _account.value = accountRepository.getAccount(accountId)
             _attachments.value = mailRepository.getAttachments(accountId, folderKey, uid)
         }
+    }
+
+    /** Opening a message marks it read (see init); this lets the user flip it back from here. */
+    fun toggleRead() {
+        val current = _message.value ?: return
+        val isRead = !current.isRead
+        _message.value = current.copy(isRead = isRead)
+        viewModelScope.launch { mailRepository.setMessageRead(accountId, folderKey, uid, isRead) }
     }
 
     fun moveToTrash() {

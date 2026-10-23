@@ -436,6 +436,7 @@ private fun InboxMessageListPane(
                                 if (summary.messageCount > 1) {
                                     onThreadClick(message.folderName, message.conversationId)
                                 } else {
+                                    viewModel.recordReadingOrder()
                                     onMessageClick(message.folderName, message.uid)
                                 }
                             },

@@ -112,7 +112,10 @@ fun ThreadScreen(
                 ) {
                     ThreadMessageRow(
                         message = message,
-                        onClick = { onMessageClick(viewModel.folderKey, message.uid) },
+                        onClick = {
+                            viewModel.recordReadingOrder()
+                            onMessageClick(viewModel.folderKey, message.uid)
+                        },
                     )
                 }
                 HorizontalDivider()

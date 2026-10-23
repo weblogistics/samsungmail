@@ -212,6 +212,12 @@ fun MailNavGraph(startAccountId: String? = null, navController: NavHostControlle
                 onForward = { accountId, folderKey, uid ->
                     navController.navigate(Routes.composeForward(accountId, folderKey, uid))
                 },
+                // Replaces this message rather than stacking on it, so Back returns to the list.
+                onOpenMessage = { accountId, folderKey, uid ->
+                    navController.navigate(Routes.messageDetail(accountId, folderKey, uid)) {
+                        popUpTo(Routes.MESSAGE_DETAIL) { inclusive = true }
+                    }
+                },
             )
         }
         composable(
