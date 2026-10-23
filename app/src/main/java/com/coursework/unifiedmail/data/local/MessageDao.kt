@@ -21,11 +21,22 @@ data class ConversationSummary(
     val isThread: Boolean get() = messageCount > 1
 }
 
+// Every MessageEntity column except the bodies, which come back NULL. Lists, threads and
+// notifications only need the preview, and a body can be large: HTML plus inlined images is
+// bounded by ImapClient, but rows synced before that bound could exceed Android's ~2 MB
+// CursorWindow, which makes the *whole query* fail. Only getByUid (the message view) reads bodies.
+private const val MESSAGE_COLUMNS_NO_BODY =
+    "messages.id, messages.accountId, messages.folderName, messages.uid, messages.messageIdHeader, " +
+        "messages.conversationId, messages.subject, messages.fromAddress, messages.fromPersonal, " +
+        "messages.toAddresses, messages.ccAddresses, messages.sentDateEpochMillis, " +
+        "messages.receivedDateEpochMillis, messages.isRead, messages.isFlagged, messages.hasAttachments, " +
+        "messages.bodyPreview, messages.isAnswered, NULL AS bodyText, NULL AS bodyHtml"
+
 // Shared by every grouped query below. Only SUM/COUNT are added alongside the single MAX in each
 // ORDER BY — a second min()/max() aggregate would break SQLite's guarantee that the bare
-// `messages.*` columns come from the newest row (see observeConversations).
+// message columns come from the newest row (see observeConversations).
 private const val CONVERSATION_COLUMNS =
-    "messages.*, COUNT(*) as messageCount, " +
+    "$MESSAGE_COLUMNS_NO_BODY, COUNT(*) as messageCount, " +
         "SUM(CASE WHEN messages.isRead = 0 THEN 1 ELSE 0 END) as unreadCount, " +
         "SUM(messages.isFlagged) as flaggedCount, " +
         "SUM(messages.hasAttachments) as attachmentCount"
@@ -43,6 +54,17 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE accountId = :accountId AND folderName = :folderName AND uid = :uid")
     suspend fun getByUid(accountId: String, folderName: String, uid: Long): MessageEntity?
 
+    /** [getByUid] without the HTML body — the fallback when a row is too large to read whole (see MailRepository.getMessage). */
+    @Query(
+        "SELECT messages.id, messages.accountId, messages.folderName, messages.uid, messages.messageIdHeader, " +
+            "messages.conversationId, messages.subject, messages.fromAddress, messages.fromPersonal, " +
+            "messages.toAddresses, messages.ccAddresses, messages.sentDateEpochMillis, " +
+            "messages.receivedDateEpochMillis, messages.isRead, messages.isFlagged, messages.hasAttachments, " +
+            "messages.bodyPreview, messages.isAnswered, messages.bodyText, NULL AS bodyHtml " +
+            "FROM messages WHERE accountId = :accountId AND folderName = :folderName AND uid = :uid",
+    )
+    suspend fun getByUidWithoutHtml(accountId: String, folderName: String, uid: Long): MessageEntity?
+
     /** Feeds MailRepository.getAutocompleteContacts — every To/Cc pair cached for one account's Sent folder. */
     @Query("SELECT toAddresses, ccAddresses FROM messages WHERE accountId = :accountId AND folderName = :folderName")
     suspend fun getAddressColumns(accountId: String, folderName: String): List<AddressColumns>
@@ -53,7 +75,7 @@ interface MessageDao {
 
     /** The [limit] most-recently-dated cached messages — see MailRepository.getRecentMessages, used to build a new-mail notification's preview. */
     @Query(
-        "SELECT * FROM messages WHERE accountId = :accountId AND folderName = :folderName " +
+        "SELECT $MESSAGE_COLUMNS_NO_BODY FROM messages WHERE accountId = :accountId AND folderName = :folderName " +
             "ORDER BY COALESCE(sentDateEpochMillis, receivedDateEpochMillis) DESC LIMIT :limit",
     )
     suspend fun getRecent(accountId: String, folderName: String, limit: Int): List<MessageEntity>
@@ -61,7 +83,7 @@ interface MessageDao {
     @Query("UPDATE messages SET isRead = :isRead WHERE id = :id")
     suspend fun markRead(id: String, isRead: Boolean)
 
-    @Query("SELECT * FROM messages WHERE accountId = :accountId AND folderName = :folderName AND isRead = 0")
+    @Query("SELECT $MESSAGE_COLUMNS_NO_BODY FROM messages WHERE accountId = :accountId AND folderName = :folderName AND isRead = 0")
     suspend fun getUnread(accountId: String, folderName: String): List<MessageEntity>
 
     /** Unread inbox count per account — drives the drawer's per-account and Combined view badges. */
@@ -102,7 +124,7 @@ interface MessageDao {
 
     /** Every message in one thread, oldest first — for the thread-expansion screen. */
     @Query(
-        "SELECT * FROM messages WHERE accountId = :accountId AND folderName = :folderName " +
+        "SELECT $MESSAGE_COLUMNS_NO_BODY FROM messages WHERE accountId = :accountId AND folderName = :folderName " +
             "AND conversationId = :conversationId " +
             "ORDER BY COALESCE(sentDateEpochMillis, receivedDateEpochMillis) ASC",
     )
@@ -110,7 +132,7 @@ interface MessageDao {
 
     /** One-shot form of [observeConversationMessages] — what a whole-thread swipe or bulk action acts on. */
     @Query(
-        "SELECT * FROM messages WHERE accountId = :accountId AND folderName = :folderName " +
+        "SELECT $MESSAGE_COLUMNS_NO_BODY FROM messages WHERE accountId = :accountId AND folderName = :folderName " +
             "AND conversationId = :conversationId " +
             "ORDER BY COALESCE(sentDateEpochMillis, receivedDateEpochMillis) ASC",
     )

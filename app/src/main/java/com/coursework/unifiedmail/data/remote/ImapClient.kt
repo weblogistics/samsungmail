@@ -804,7 +804,10 @@ class ImapClientImpl @Inject constructor() : ImapClient {
         const val BODY_PREVIEW_CHARS = 140
         // Combined raw-byte budget for inline (cid:) images embedded per message — bounds how
         // much a single sync can inflate one row's stored HTML (~1.4x after base64 encoding).
-        const val MAX_INLINE_IMAGES_TOTAL_BYTES = 3 * 1024 * 1024L
+        // Base64 inflates this by a third, and it's stored inside bodyHtml alongside the HTML
+        // (≤ BODY_HTML_MAX_CHARS) and plain text — the whole row has to stay under Android's
+        // ~2 MB CursorWindow or SQLite can't read it back at all.
+        const val MAX_INLINE_IMAGES_TOTAL_BYTES = 900 * 1024L
         // Safety valve independent of the user's configured sync window (which can be "All
         // mail") — the previous hardcoded initial-sync limit, kept as an upper bound rather than
         // removed outright.

@@ -1,16 +1,11 @@
 package com.coursework.unifiedmail.ui.thread
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Email
@@ -32,9 +27,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -128,10 +123,17 @@ fun ThreadScreen(
 private fun ThreadMessageRow(message: MessageEntity, onClick: () -> Unit) {
     val fontWeight = if (message.isRead) FontWeight.Normal else FontWeight.Bold
     val senderLabel = message.fromPersonal?.takeIf { it.isNotBlank() } ?: message.fromAddress ?: "Unknown sender"
+    val unreadStripeColor = MaterialTheme.colorScheme.primary
 
     ListItem(
         modifier = Modifier
             .fillMaxWidth()
+            // Same unread cue as the inbox list (bold + left stripe). Drawn over the content
+            // because ListItem paints its own opaque container; its start padding keeps it clear.
+            .drawWithContent {
+                drawContent()
+                if (!message.isRead) drawRect(unreadStripeColor, size = Size(4.dp.toPx(), size.height))
+            }
             .clickable(onClick = onClick),
         leadingContent = { SenderAvatar(senderLabel) },
         headlineContent = { Text(text = senderLabel, fontWeight = fontWeight, maxLines = 1) },
@@ -141,18 +143,7 @@ private fun ThreadMessageRow(message: MessageEntity, onClick: () -> Unit) {
             }
         },
         trailingContent = {
-            Column(horizontalAlignment = Alignment.End) {
-                Text(text = formatRelativeDate(message.sentDateEpochMillis ?: message.receivedDateEpochMillis))
-                if (!message.isRead) {
-                    Box(
-                        modifier = Modifier
-                            .padding(top = 4.dp)
-                            .size(10.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary),
-                    )
-                }
-            }
+            Text(text = formatRelativeDate(message.sentDateEpochMillis ?: message.receivedDateEpochMillis))
         },
     )
 }

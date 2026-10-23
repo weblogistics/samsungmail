@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -36,7 +35,6 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
@@ -86,23 +84,26 @@ fun MessageListItem(
     hasAttachments: Boolean = message.hasAttachments,
     density: ListDensity = ListDensity.COMFORTABLE,
     isSelected: Boolean = false,
+    // Wide screens: this row is the one shown in the detail pane.
+    isOpen: Boolean = false,
     selectionModeActive: Boolean = false,
     onLongClick: () -> Unit = {},
     onToggleSelect: () -> Unit = {},
 ) {
     val haptic = LocalHapticFeedback.current
+    val unreadStripeColor = accountColor ?: MaterialTheme.colorScheme.primary
 
-    // The account stripe only shows on unread rows — a second unread cue, in the account's colour,
-    // rather than a constant stripe competing with it. Drawn into the space left by the start
-    // padding (kept on every row so text doesn't shift) rather than laid out as a fillMaxHeight()
-    // sibling — inside a LazyColumn item there's no bounded height for that to fill.
+    // Unread is shown by bold text plus a stripe down the left edge — in the account's colour in
+    // the unified inbox, the theme colour otherwise. Drawn into the space left by the start
+    // padding (kept on every row so text doesn't shift when a message is read) rather than laid
+    // out as a fillMaxHeight() sibling — inside a LazyColumn item there's no bounded height to fill.
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .drawBehind {
-                if (accountColor != null && hasUnread) drawRect(accountColor, size = Size(ACCOUNT_STRIPE_WIDTH.toPx(), size.height))
+                if (hasUnread) drawRect(unreadStripeColor, size = Size(UNREAD_STRIPE_WIDTH.toPx(), size.height))
             }
-            .padding(start = if (accountColor != null) ACCOUNT_STRIPE_WIDTH else 0.dp),
+            .padding(start = UNREAD_STRIPE_WIDTH),
     ) {
         SwipeActionsBox(
             swipeRightAction = swipeRightAction,
@@ -117,22 +118,17 @@ fun MessageListItem(
             val senderLabel = message.fromPersonal?.takeIf { it.isNotBlank() }
                 ?: message.fromAddress ?: "Unknown sender"
             val isThread = conversationCount > 1
-            val threadLineColor = MaterialTheme.colorScheme.primary
 
             ListItem(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(
-                        if (isSelected) MaterialTheme.colorScheme.primaryContainer
-                        else MaterialTheme.colorScheme.surface,
+                        when {
+                            isSelected -> MaterialTheme.colorScheme.primaryContainer
+                            isOpen -> MaterialTheme.colorScheme.surfaceContainerHighest
+                            else -> MaterialTheme.colorScheme.surface
+                        },
                     )
-                    // Marks a thread row (as opposed to a single email) with a line down its
-                    // left edge. Drawn *after* the content: ListItem paints its own opaque
-                    // container, which hid a line drawn behind it everywhere but the padding.
-                    .drawWithContent {
-                        drawContent()
-                        if (isThread) drawRect(threadLineColor, size = Size(THREAD_LINE_WIDTH.toPx(), size.height))
-                    }
                     .combinedClickable(
                         onClick = if (selectionModeActive) onToggleSelect else onClick,
                         // A small tactile confirmation that a long-press actually registered
@@ -183,15 +179,6 @@ fun MessageListItem(
                 trailingContent = {
                     Column(horizontalAlignment = Alignment.End) {
                         Text(text = formatRelativeDate(message.sentDateEpochMillis ?: message.receivedDateEpochMillis))
-                        if (hasUnread) {
-                            Box(
-                                modifier = Modifier
-                                    .padding(top = 4.dp)
-                                    .size(10.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary),
-                            )
-                        }
                         if (hasAttachments) {
                             Icon(
                                 Icons.Filled.AttachFile,
@@ -209,8 +196,7 @@ fun MessageListItem(
     }
 }
 
-private val ACCOUNT_STRIPE_WIDTH = 4.dp
-private val THREAD_LINE_WIDTH = 4.dp
+private val UNREAD_STRIPE_WIDTH = 4.dp
 
 /** Pill after a thread row's subject showing how many messages it holds — reads as "a conversation", unlike a bare "(3)". */
 @Composable
@@ -302,7 +288,7 @@ fun SwipeActionsBox(
     }
 }
 
-// TOGGLE_READ renders blue/envelope (matching the blue unread dot used elsewhere in this list),
+// TOGGLE_READ renders blue/envelope (matching the blue unread stripe used elsewhere in this list),
 // REMOVE renders red/trash (destructive — was previously blue, indistinguishable in intent from
 // the read/unread toggle), ARCHIVE always green/archive-box, TOGGLE_FLAG always gold/star —
 // consistent regardless of which physical direction each is currently bound to.

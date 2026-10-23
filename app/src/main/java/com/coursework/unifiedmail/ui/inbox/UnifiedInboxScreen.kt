@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -84,6 +85,7 @@ import com.coursework.unifiedmail.ui.nav.AppDrawerContent
 import com.coursework.unifiedmail.ui.nav.MessageDetailPane
 import com.coursework.unifiedmail.ui.nav.detailPaneMessageRoute
 import com.coursework.unifiedmail.ui.nav.detailPaneThreadRoute
+import com.coursework.unifiedmail.ui.nav.rememberDetailPaneSelection
 import com.coursework.unifiedmail.ui.theme.colorForKey
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
@@ -130,6 +132,7 @@ fun UnifiedInboxScreen(
     // Only ever navigated on wide screens (see below) — on a phone-width run the list pane
     // always fills the screen and navigates the outer app-level controller exactly as before.
     val detailNavController = rememberNavController()
+    val detailPaneSelection = rememberDetailPaneSelection(detailNavController)
     // null until the user drags the splitter this session; falls back to the persisted width
     // (settings.listPaneWidthDp) until then, so it also picks up that value once it's loaded
     // rather than freezing on the pre-DataStore default.
@@ -263,11 +266,14 @@ fun UnifiedInboxScreen(
             floatingActionButton = { if (!isWideScreen) composeButton() },
         ) { padding ->
             if (isWideScreen) {
-                Row(modifier = Modifier.padding(padding).fillMaxSize()) {
+                // consumeWindowInsets: the detail pane's own Scaffold/TopAppBar would otherwise pad for the
+                // status and navigation bars a second time, leaving a gap above the open message.
+                Row(modifier = Modifier.padding(padding).consumeWindowInsets(padding).fillMaxSize()) {
                     if (!showDetailFullScreen) {
                         Box(modifier = Modifier.width(paneWidthDp.dp)) {
                             UnifiedMessageListPane(
                                 modifier = Modifier.fillMaxSize(),
+                                isRowOpen = detailPaneSelection,
                                 messages = messages,
                                 accounts = accounts,
                                 isSyncing = isSyncing,
@@ -358,6 +364,8 @@ private fun UnifiedMessageListPane(
     onMessageClick: (accountId: String, uid: Long) -> Unit,
     onThreadClick: (accountId: String, conversationId: String) -> Unit,
     listState: LazyListState,
+    // Wide screens: whether a row is the one open in the detail pane (highlighted).
+    isRowOpen: (ConversationSummary) -> Boolean = { false },
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier) {
@@ -457,6 +465,7 @@ private fun UnifiedMessageListPane(
                             onArchive = { viewModel.archiveRow(summary) },
                             onToggleFlag = { viewModel.toggleRowFlag(summary) },
                             isSelected = message.id in selectedIds,
+                            isOpen = isRowOpen(summary),
                             selectionModeActive = selectionModeActive,
                             onLongClick = { viewModel.toggleSelection(message.id) },
                             onToggleSelect = { viewModel.toggleSelection(message.id) },

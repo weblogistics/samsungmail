@@ -125,6 +125,10 @@ class MessageDaoTest {
         assertEquals(1, conversation.unreadCount)
         assertEquals(1, conversation.flaggedCount)
         assertEquals(1, conversation.attachmentCount)
+        // List rows deliberately leave the (potentially huge) bodies behind; the preview stays.
+        assertNull(conversation.latestMessage.bodyText)
+        assertEquals("preview", conversation.latestMessage.bodyPreview)
+        assertEquals("body for Subject m2", messageDao.getByUid("acc1", "INBOX", 2)?.bodyText)
         assertEquals(listOf("m1", "m3", "m2"), messageDao.getConversationMessages("acc1", "INBOX", "conv-a").map { it.id })
     }
 

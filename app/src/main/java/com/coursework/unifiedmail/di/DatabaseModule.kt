@@ -25,13 +25,11 @@ object DatabaseModule {
     @Singleton
     fun provideAppDatabase(@ApplicationContext context: Context): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, "unified_mail.db")
-            // Deliberately no Migration objects: this schema has never shipped to a real device
-            // (no build of this app has been installed anywhere), so there is no installed data
-            // anywhere to preserve — a destructive fallback costs nothing right now. Once this
-            // is actually installed somewhere with real cached mail, replace this with real
-            // Migrations before the next schema change, since at that point a wipe is a real
-            // (if low-stakes — everything here is re-downloadable from the mail server) loss.
-            .fallbackToDestructiveMigration()
+            // The app is now installed with real accounts, so schema changes from version 14 on
+            // need a real Migration — a destructive fallback would also wipe the accounts table.
+            // The fallback stays only for pre-14 development builds, which never held real data.
+            .addMigrations(AppDatabase.MIGRATION_14_15)
+            .fallbackToDestructiveMigrationFrom(*(1..13).toList().toIntArray())
             .build()
 
     @Provides

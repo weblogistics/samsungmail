@@ -6,7 +6,12 @@ import androidx.room.PrimaryKey
 
 @Entity(
     tableName = "messages",
-    indices = [Index(value = ["accountId", "folderName"]), Index(value = ["conversationId"])],
+    indices = [
+        Index(value = ["accountId", "folderName"]),
+        Index(value = ["conversationId"]),
+        // The unified inbox filters on folderName across every account — see AppDatabase.MIGRATION_14_15.
+        Index(value = ["folderName"]),
+    ],
 )
 data class MessageEntity(
     @PrimaryKey val id: String,

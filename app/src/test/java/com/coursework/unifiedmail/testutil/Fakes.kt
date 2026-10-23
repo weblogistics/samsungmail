@@ -293,6 +293,9 @@ class FakeMessageDao : MessageDao {
     override suspend fun getByUid(accountId: String, folderName: String, uid: Long): MessageEntity? =
         messages.firstOrNull { it.accountId == accountId && it.folderName == folderName && it.uid == uid }
 
+    override suspend fun getByUidWithoutHtml(accountId: String, folderName: String, uid: Long): MessageEntity? =
+        getByUid(accountId, folderName, uid)?.copy(bodyHtml = null)
+
     override suspend fun getUnread(accountId: String, folderName: String): List<MessageEntity> =
         messages.filter { it.accountId == accountId && it.folderName == folderName && !it.isRead }
 

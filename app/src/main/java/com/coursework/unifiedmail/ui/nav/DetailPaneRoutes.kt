@@ -13,6 +13,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.navArgument
+import com.coursework.unifiedmail.data.local.ConversationSummary
 import com.coursework.unifiedmail.ui.components.EmptyState
 import com.coursework.unifiedmail.ui.components.FullScreenToggleButton
 import com.coursework.unifiedmail.ui.message.MessageDetailScreen
@@ -40,6 +41,40 @@ fun detailPaneMessageRoute(accountId: String, folderKey: String, uid: Long) =
 
 fun detailPaneThreadRoute(accountId: String, folderKey: String, conversationId: String) =
     DetailPaneRoutes.thread(accountId, folderKey, conversationId)
+
+/**
+ * Which list row the detail pane is showing, so the list pane can highlight it: the open message,
+ * or the open thread — including while one of that thread's messages is open on top of it.
+ */
+@Composable
+fun rememberDetailPaneSelection(navController: NavHostController): (ConversationSummary) -> Boolean {
+    val current = navController.currentBackStackEntryAsState().value
+    val previous = navController.previousBackStackEntry
+    val entries = if (current?.destination?.route == DetailPaneRoutes.MESSAGE_DETAIL &&
+        previous?.destination?.route == DetailPaneRoutes.THREAD
+    ) {
+        listOf(current, previous)
+    } else {
+        listOfNotNull(current)
+    }
+    val openMessages = mutableSetOf<Triple<String, String, Long>>()
+    val openThreads = mutableSetOf<Pair<String, String>>()
+    for (entry in entries) {
+        val args = entry.arguments ?: continue
+        val accountId = args.getString("accountId") ?: continue
+        when (entry.destination.route) {
+            DetailPaneRoutes.MESSAGE_DETAIL ->
+                openMessages += Triple(accountId, args.getString("folderKey").orEmpty(), args.getLong("uid"))
+            DetailPaneRoutes.THREAD ->
+                args.getString("conversationId")?.let { openThreads += accountId to it }
+        }
+    }
+    return { summary ->
+        val message = summary.latestMessage
+        Triple(message.accountId, message.folderName, message.uid) in openMessages ||
+            (message.accountId to message.conversationId) in openThreads
+    }
+}
 
 /**
  * The right-hand pane of the wide-screen list-detail split. Reuses [MessageDetailScreen] and

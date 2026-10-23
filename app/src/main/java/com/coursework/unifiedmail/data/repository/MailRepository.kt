@@ -1,5 +1,6 @@
 package com.coursework.unifiedmail.data.repository
 
+import android.database.sqlite.SQLiteBlobTooBigException
 import com.coursework.unifiedmail.data.files.PickedAttachment
 import com.coursework.unifiedmail.data.local.AccountEntity
 import com.coursework.unifiedmail.data.local.AttachmentDao
@@ -256,8 +257,16 @@ class MailRepository @Inject constructor(
     suspend fun getInboxMessage(accountId: String, uid: Long): MessageEntity? =
         getMessage(accountId, INBOX_FOLDER_KEY, uid)
 
+    /**
+     * Falls back to the plain-text body if the row is too large for SQLite's ~2 MB cursor window
+     * to read whole — possible for messages synced before ImapClient bounded inlined images.
+     */
     suspend fun getMessage(accountId: String, folderKey: String, uid: Long): MessageEntity? =
-        messageDao.getByUid(accountId, folderKey, uid)
+        try {
+            messageDao.getByUid(accountId, folderKey, uid)
+        } catch (e: SQLiteBlobTooBigException) {
+            messageDao.getByUidWithoutHtml(accountId, folderKey, uid)
+        }
 
     /**
      * The [limit] most-recently-dated cached messages in this folder — used by SyncWorker/
