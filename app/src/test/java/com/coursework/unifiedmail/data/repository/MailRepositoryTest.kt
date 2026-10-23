@@ -24,6 +24,7 @@ import com.coursework.unifiedmail.testutil.FakeOutboxDao
 import com.coursework.unifiedmail.testutil.FakeSmtpSender
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -126,6 +127,28 @@ class MailRepositoryTest {
         bodyText = "body",
         bodyHtml = null,
     )
+
+    @Test
+    fun `getRowMessages expands a thread row to every message in that conversation and folder`() = runTest {
+        val thread = "mid:<1@x>"
+        messageDao.messages.add(fakeMessageEntity(1).copy(conversationId = thread))
+        messageDao.messages.add(fakeMessageEntity(2).copy(conversationId = thread))
+        messageDao.messages.add(fakeMessageEntity(3)) // different conversation
+        messageDao.messages.add(fakeMessageEntity(4, folderKey = "Sent").copy(conversationId = thread)) // other folder
+        val row = repository.observeFolder(accountId, MailRepository.INBOX_FOLDER_KEY, threaded = true).first()
+            .first { it.latestMessage.conversationId == thread }
+
+        assertEquals(listOf(1L, 2L), repository.getRowMessages(row).map { it.uid })
+        assertEquals(2, row.unreadCount)
+    }
+
+    @Test
+    fun `getRowMessages returns just the row's message when it isn't a thread`() = runTest {
+        messageDao.messages.add(fakeMessageEntity(1))
+        val row = repository.observeFolder(accountId, MailRepository.INBOX_FOLDER_KEY, threaded = true).first().single()
+
+        assertEquals(listOf(1L), repository.getRowMessages(row).map { it.uid })
+    }
 
     @Test
     fun `syncAccount success caches messages and advances the sync watermark`() = runTest {

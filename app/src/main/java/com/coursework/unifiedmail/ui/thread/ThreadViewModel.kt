@@ -6,10 +6,10 @@ import androidx.lifecycle.viewModelScope
 import com.coursework.unifiedmail.data.local.MessageEntity
 import com.coursework.unifiedmail.data.repository.MailRepository
 import com.coursework.unifiedmail.data.repository.MoveOutcome
-import com.coursework.unifiedmail.data.repository.UndoMoveOutcome
 import com.coursework.unifiedmail.data.settings.AppSettings
 import com.coursework.unifiedmail.data.settings.SettingsRepository
 import com.coursework.unifiedmail.ui.inbox.UndoableMoveAction
+import com.coursework.unifiedmail.ui.inbox.undoMoves
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -60,7 +60,7 @@ class ThreadViewModel @Inject constructor(
         viewModelScope.launch {
             when (val result = mailRepository.moveMessageToTrash(message.accountId, message.folderName, message.uid)) {
                 is MoveOutcome.Success ->
-                    _undoableAction.value = UndoableMoveAction(message, message.folderName, result.destinationFolderKey, "Moved to trash")
+                    _undoableAction.value = UndoableMoveAction(listOf(message), message.folderName, result.destinationFolderKey, "Moved to trash")
                 is MoveOutcome.Failure -> _error.value = result.reason
             }
         }
@@ -70,7 +70,7 @@ class ThreadViewModel @Inject constructor(
         viewModelScope.launch {
             when (val result = mailRepository.moveMessageToArchive(message.accountId, message.folderName, message.uid)) {
                 is MoveOutcome.Success ->
-                    _undoableAction.value = UndoableMoveAction(message, message.folderName, result.destinationFolderKey, "Archived")
+                    _undoableAction.value = UndoableMoveAction(listOf(message), message.folderName, result.destinationFolderKey, "Archived")
                 is MoveOutcome.Failure -> _error.value = result.reason
             }
         }
@@ -84,16 +84,9 @@ class ThreadViewModel @Inject constructor(
         val action = _undoableAction.value ?: return
         _undoableAction.value = null
         viewModelScope.launch {
-            val result = mailRepository.undoMove(
-                action.message.accountId,
-                action.originalFolderKey,
-                action.destinationFolderKey,
-                action.message.messageIdHeader,
-            )
-            when (result) {
-                is UndoMoveOutcome.Failure -> _error.value = result.reason
-                is UndoMoveOutcome.Success -> mailRepository.syncFolder(accountId, action.originalFolderKey)
-            }
+            val failures = mailRepository.undoMoves(action)
+            if (failures.isNotEmpty()) _error.value = failures.joinToString("\n")
+            mailRepository.syncFolder(accountId, action.originalFolderKey)
         }
     }
 

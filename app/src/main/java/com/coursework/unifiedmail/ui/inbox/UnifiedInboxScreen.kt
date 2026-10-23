@@ -58,6 +58,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -133,6 +134,9 @@ fun UnifiedInboxScreen(
     // (settings.listPaneWidthDp) until then, so it also picks up that value once it's loaded
     // rather than freezing on the pre-DataStore default.
     var draggedPaneWidthDp by remember { mutableStateOf<Float?>(null) }
+    // Wide screens only: the open message/thread expanded over the list (see MessageDetailPane).
+    var isDetailFullScreen by rememberSaveable { mutableStateOf(false) }
+    val showDetailFullScreen = isWideScreen && isDetailFullScreen
     val paneWidthDp = (draggedPaneWidthDp ?: settings.listPaneWidthDp.toFloat())
         .coerceIn(MIN_LIST_PANE_WIDTH_DP.toFloat(), MAX_LIST_PANE_WIDTH_DP.toFloat())
 
@@ -195,7 +199,9 @@ fun UnifiedInboxScreen(
         Scaffold(
             snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
-                if (selectionModeActive) {
+                if (showDetailFullScreen) {
+                    // The open message's own top bar stands in for this one.
+                } else if (selectionModeActive) {
                     TopAppBar(
                         title = { Text("${selectedIds.size} selected") },
                         navigationIcon = {
@@ -237,7 +243,7 @@ fun UnifiedInboxScreen(
             floatingActionButton = {
                 // Hidden while scrolling down through a long list so it doesn't sit over content;
                 // reappears the moment the user scrolls back up (or stops).
-                AnimatedVisibility(visible = isScrollingUp, enter = fadeIn(), exit = fadeOut()) {
+                AnimatedVisibility(visible = isScrollingUp && !showDetailFullScreen,enter = fadeIn(), exit = fadeOut()) {
                     FloatingActionButton(
                         onClick = {
                             if (accounts.size <= 1) {
@@ -254,44 +260,48 @@ fun UnifiedInboxScreen(
         ) { padding ->
             if (isWideScreen) {
                 Row(modifier = Modifier.padding(padding).fillMaxSize()) {
-                    UnifiedMessageListPane(
-                        modifier = Modifier.width(paneWidthDp.dp),
-                        messages = messages,
-                        accounts = accounts,
-                        isSyncing = isSyncing,
-                        lastSyncedAt = lastSyncedAt,
-                        searchQuery = searchQuery,
-                        anyFilterActive = anyFilterActive,
-                        isServerSearching = isServerSearching,
-                        settings = settings,
-                        selectedIds = selectedIds,
-                        selectionModeActive = selectionModeActive,
-                        hasAttachmentFilter = hasAttachmentFilter,
-                        unreadOnlyFilter = unreadOnlyFilter,
-                        flaggedOnlyFilter = flaggedOnlyFilter,
-                        viewModel = viewModel,
-                        onMessageClick = { accountId, uid ->
-                            detailNavController.navigate(detailPaneMessageRoute(accountId, MailRepository.INBOX_FOLDER_KEY, uid))
-                        },
-                        onThreadClick = { accountId, conversationId ->
-                            detailNavController.navigate(detailPaneThreadRoute(accountId, MailRepository.INBOX_FOLDER_KEY, conversationId))
-                        },
-                        listState = listState,
-                    )
-                    SplitPaneDivider(
-                        onDrag = { deltaDp ->
-                            draggedPaneWidthDp = ((draggedPaneWidthDp ?: settings.listPaneWidthDp.toFloat()) + deltaDp)
-                                .coerceIn(MIN_LIST_PANE_WIDTH_DP.toFloat(), MAX_LIST_PANE_WIDTH_DP.toFloat())
-                        },
-                        onDragStopped = {
-                            draggedPaneWidthDp?.let { viewModel.setListPaneWidthDp(it.roundToInt()) }
-                        },
-                    )
+                    if (!showDetailFullScreen) {
+                        UnifiedMessageListPane(
+                            modifier = Modifier.width(paneWidthDp.dp),
+                            messages = messages,
+                            accounts = accounts,
+                            isSyncing = isSyncing,
+                            lastSyncedAt = lastSyncedAt,
+                            searchQuery = searchQuery,
+                            anyFilterActive = anyFilterActive,
+                            isServerSearching = isServerSearching,
+                            settings = settings,
+                            selectedIds = selectedIds,
+                            selectionModeActive = selectionModeActive,
+                            hasAttachmentFilter = hasAttachmentFilter,
+                            unreadOnlyFilter = unreadOnlyFilter,
+                            flaggedOnlyFilter = flaggedOnlyFilter,
+                            viewModel = viewModel,
+                            onMessageClick = { accountId, uid ->
+                                detailNavController.navigate(detailPaneMessageRoute(accountId, MailRepository.INBOX_FOLDER_KEY, uid))
+                            },
+                            onThreadClick = { accountId, conversationId ->
+                                detailNavController.navigate(detailPaneThreadRoute(accountId, MailRepository.INBOX_FOLDER_KEY, conversationId))
+                            },
+                            listState = listState,
+                        )
+                        SplitPaneDivider(
+                            onDrag = { deltaDp ->
+                                draggedPaneWidthDp = ((draggedPaneWidthDp ?: settings.listPaneWidthDp.toFloat()) + deltaDp)
+                                    .coerceIn(MIN_LIST_PANE_WIDTH_DP.toFloat(), MAX_LIST_PANE_WIDTH_DP.toFloat())
+                            },
+                            onDragStopped = {
+                                draggedPaneWidthDp?.let { viewModel.setListPaneWidthDp(it.roundToInt()) }
+                            },
+                        )
+                    }
                     MessageDetailPane(
                         navController = detailNavController,
                         onReply = onReplyClick,
                         onReplyAll = onReplyAllClick,
                         onForward = onForwardClick,
+                        isFullScreen = isDetailFullScreen,
+                        onFullScreenChange = { isDetailFullScreen = it },
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -421,6 +431,8 @@ private fun UnifiedMessageListPane(
                         MessageListItem(
                             message = message,
                             conversationCount = summary.messageCount,
+                            hasUnread = summary.unreadCount > 0,
+                            hasAttachments = summary.attachmentCount > 0,
                             density = settings.listDensity,
                             accountColor = colorForKey(message.accountId),
                             swipeRightAction = settings.swipeRightAction,
@@ -432,10 +444,10 @@ private fun UnifiedMessageListPane(
                                     onMessageClick(message.accountId, message.uid)
                                 }
                             },
-                            onToggleRead = { viewModel.setMessageRead(message, !message.isRead) },
-                            onRemove = { viewModel.moveToTrash(message) },
-                            onArchive = { viewModel.archiveMessage(message) },
-                            onToggleFlag = { viewModel.setMessageFlagged(message, !message.isFlagged) },
+                            onToggleRead = { viewModel.toggleRowRead(summary) },
+                            onRemove = { viewModel.moveRowToTrash(summary) },
+                            onArchive = { viewModel.archiveRow(summary) },
+                            onToggleFlag = { viewModel.toggleRowFlag(summary) },
                             isSelected = message.id in selectedIds,
                             selectionModeActive = selectionModeActive,
                             onLongClick = { viewModel.toggleSelection(message.id) },

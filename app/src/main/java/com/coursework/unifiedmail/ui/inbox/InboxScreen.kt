@@ -54,6 +54,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -126,6 +127,9 @@ fun InboxScreen(
     // (settings.listPaneWidthDp) until then, so it also picks up that value once it's loaded
     // rather than freezing on the pre-DataStore default.
     var draggedPaneWidthDp by remember { mutableStateOf<Float?>(null) }
+    // Wide screens only: the open message/thread expanded over the list (see MessageDetailPane).
+    var isDetailFullScreen by rememberSaveable { mutableStateOf(false) }
+    val showDetailFullScreen = isWideScreen && isDetailFullScreen
     val paneWidthDp = (draggedPaneWidthDp ?: settings.listPaneWidthDp.toFloat())
         .coerceIn(MIN_LIST_PANE_WIDTH_DP.toFloat(), MAX_LIST_PANE_WIDTH_DP.toFloat())
 
@@ -183,7 +187,9 @@ fun InboxScreen(
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            if (selectionModeActive) {
+            if (showDetailFullScreen) {
+                // The open message's own top bar stands in for this one.
+            } else if (selectionModeActive) {
                 TopAppBar(
                     title = { Text("${selectedIds.size} selected") },
                     navigationIcon = {
@@ -243,7 +249,7 @@ fun InboxScreen(
         floatingActionButton = {
             // Hidden while scrolling down through a long list so it doesn't sit over content;
             // reappears the moment the user scrolls back up (or stops).
-            AnimatedVisibility(visible = isScrollingUp, enter = fadeIn(), exit = fadeOut()) {
+            AnimatedVisibility(visible = isScrollingUp && !showDetailFullScreen,enter = fadeIn(), exit = fadeOut()) {
                 FloatingActionButton(onClick = onComposeClick) {
                     Icon(Icons.Filled.Edit, contentDescription = "Compose")
                 }
@@ -252,44 +258,48 @@ fun InboxScreen(
     ) { padding ->
         if (isWideScreen) {
             Row(modifier = Modifier.padding(padding).fillMaxSize()) {
-                InboxMessageListPane(
-                    modifier = Modifier.width(paneWidthDp.dp),
-                    messages = messages,
-                    isSyncing = isSyncing,
-                    lastSyncedAt = lastSyncedAt,
-                    searchQuery = searchQuery,
-                    anyFilterActive = anyFilterActive,
-                    isServerSearching = isServerSearching,
-                    isLoadingOlder = isLoadingOlder,
-                    settings = settings,
-                    selectedIds = selectedIds,
-                    selectionModeActive = selectionModeActive,
-                    hasAttachmentFilter = hasAttachmentFilter,
-                    unreadOnlyFilter = unreadOnlyFilter,
-                    flaggedOnlyFilter = flaggedOnlyFilter,
-                    viewModel = viewModel,
-                    onMessageClick = { folderKey, uid ->
-                        detailNavController.navigate(detailPaneMessageRoute(viewModel.accountId, folderKey, uid))
-                    },
-                    onThreadClick = { folderKey, conversationId ->
-                        detailNavController.navigate(detailPaneThreadRoute(viewModel.accountId, folderKey, conversationId))
-                    },
-                    listState = listState,
-                )
-                SplitPaneDivider(
-                    onDrag = { deltaDp ->
-                        draggedPaneWidthDp = ((draggedPaneWidthDp ?: settings.listPaneWidthDp.toFloat()) + deltaDp)
-                            .coerceIn(MIN_LIST_PANE_WIDTH_DP.toFloat(), MAX_LIST_PANE_WIDTH_DP.toFloat())
-                    },
-                    onDragStopped = {
-                        draggedPaneWidthDp?.let { viewModel.setListPaneWidthDp(it.roundToInt()) }
-                    },
-                )
+                if (!showDetailFullScreen) {
+                    InboxMessageListPane(
+                        modifier = Modifier.width(paneWidthDp.dp),
+                        messages = messages,
+                        isSyncing = isSyncing,
+                        lastSyncedAt = lastSyncedAt,
+                        searchQuery = searchQuery,
+                        anyFilterActive = anyFilterActive,
+                        isServerSearching = isServerSearching,
+                        isLoadingOlder = isLoadingOlder,
+                        settings = settings,
+                        selectedIds = selectedIds,
+                        selectionModeActive = selectionModeActive,
+                        hasAttachmentFilter = hasAttachmentFilter,
+                        unreadOnlyFilter = unreadOnlyFilter,
+                        flaggedOnlyFilter = flaggedOnlyFilter,
+                        viewModel = viewModel,
+                        onMessageClick = { folderKey, uid ->
+                            detailNavController.navigate(detailPaneMessageRoute(viewModel.accountId, folderKey, uid))
+                        },
+                        onThreadClick = { folderKey, conversationId ->
+                            detailNavController.navigate(detailPaneThreadRoute(viewModel.accountId, folderKey, conversationId))
+                        },
+                        listState = listState,
+                    )
+                    SplitPaneDivider(
+                        onDrag = { deltaDp ->
+                            draggedPaneWidthDp = ((draggedPaneWidthDp ?: settings.listPaneWidthDp.toFloat()) + deltaDp)
+                                .coerceIn(MIN_LIST_PANE_WIDTH_DP.toFloat(), MAX_LIST_PANE_WIDTH_DP.toFloat())
+                        },
+                        onDragStopped = {
+                            draggedPaneWidthDp?.let { viewModel.setListPaneWidthDp(it.roundToInt()) }
+                        },
+                    )
+                }
                 MessageDetailPane(
                     navController = detailNavController,
                     onReply = onReplyClick,
                     onReplyAll = onReplyAllClick,
                     onForward = onForwardClick,
+                    isFullScreen = isDetailFullScreen,
+                    onFullScreenChange = { isDetailFullScreen = it },
                     modifier = Modifier.weight(1f),
                 )
             }
@@ -417,6 +427,8 @@ private fun InboxMessageListPane(
                         MessageListItem(
                             message = message,
                             conversationCount = summary.messageCount,
+                            hasUnread = summary.unreadCount > 0,
+                            hasAttachments = summary.attachmentCount > 0,
                             density = settings.listDensity,
                             swipeRightAction = settings.swipeRightAction,
                             swipeLeftAction = settings.swipeLeftAction,
@@ -427,10 +439,10 @@ private fun InboxMessageListPane(
                                     onMessageClick(message.folderName, message.uid)
                                 }
                             },
-                            onToggleRead = { viewModel.setMessageRead(message, !message.isRead) },
-                            onRemove = { viewModel.moveToTrash(message) },
-                            onArchive = { viewModel.archiveMessage(message) },
-                            onToggleFlag = { viewModel.setMessageFlagged(message, !message.isFlagged) },
+                            onToggleRead = { viewModel.toggleRowRead(summary) },
+                            onRemove = { viewModel.moveRowToTrash(summary) },
+                            onArchive = { viewModel.archiveRow(summary) },
+                            onToggleFlag = { viewModel.toggleRowFlag(summary) },
                             isSelected = message.id in selectedIds,
                             selectionModeActive = selectionModeActive,
                             onLongClick = { viewModel.toggleSelection(message.id) },

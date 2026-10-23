@@ -11,7 +11,6 @@ import com.coursework.unifiedmail.data.repository.AccountRepository
 import com.coursework.unifiedmail.data.repository.MailRepository
 import com.coursework.unifiedmail.data.repository.MoveOutcome
 import com.coursework.unifiedmail.data.repository.SyncOutcome
-import com.coursework.unifiedmail.data.repository.UndoMoveOutcome
 import com.coursework.unifiedmail.data.settings.AppSettings
 import com.coursework.unifiedmail.data.settings.SettingsRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -213,9 +212,16 @@ class InboxViewModel @Inject constructor(
         _infoMessage.value = null
     }
 
-    fun setMessageRead(message: MessageEntity, isRead: Boolean) {
+    /**
+     * Read/unread toggle for a whole row: a thread with any unread message is marked fully read,
+     * otherwise every message in it is marked unread.
+     */
+    fun toggleRowRead(summary: ConversationSummary) {
+        val markRead = summary.unreadCount > 0
         viewModelScope.launch {
-            mailRepository.setMessageRead(message.accountId, message.folderName, message.uid, isRead)
+            mailRepository.getRowMessages(summary)
+                .filter { it.isRead != markRead }
+                .forEach { mailRepository.setMessageRead(it.accountId, it.folderName, it.uid, markRead) }
         }
     }
 
@@ -239,31 +245,35 @@ class InboxViewModel @Inject constructor(
         }
     }
 
-    fun setMessageFlagged(message: MessageEntity, isFlagged: Boolean) {
+    /** Flag toggle for a whole row: a thread with any flagged message is fully unflagged, otherwise all of it is flagged. */
+    fun toggleRowFlag(summary: ConversationSummary) {
+        val flag = summary.flaggedCount == 0
         viewModelScope.launch {
-            mailRepository.setMessageFlagged(message.accountId, message.folderName, message.uid, isFlagged)
+            mailRepository.getRowMessages(summary)
+                .filter { it.isFlagged != flag }
+                .forEach { mailRepository.setMessageFlagged(it.accountId, it.folderName, it.uid, flag) }
         }
     }
 
-    /** Real server-side move to Trash — not just a local cache removal. Offers Undo (see [undoLastMove]) on success. */
-    fun moveToTrash(message: MessageEntity) {
+    /** Real server-side move of the whole row (every message in a thread) to Trash. Offers Undo (see [undoLastMove]) on success. */
+    fun moveRowToTrash(summary: ConversationSummary) {
         viewModelScope.launch {
-            when (val result = mailRepository.moveMessageToTrash(message.accountId, message.folderName, message.uid)) {
-                is MoveOutcome.Success ->
-                    _undoableAction.value = UndoableMoveAction(message, message.folderName, result.destinationFolderKey, "Moved to trash")
-                is MoveOutcome.Failure -> _syncError.value = result.reason
+            val (action, failures) = moveMessages(mailRepository.getRowMessages(summary), "Moved to trash") {
+                mailRepository.moveMessageToTrash(it.accountId, it.folderName, it.uid)
             }
+            action?.let { _undoableAction.value = it }
+            if (failures.isNotEmpty()) _syncError.value = failures.joinToString("\n")
         }
     }
 
-    /** Real server-side move to Archive — not just a local cache removal. Offers Undo (see [undoLastMove]) on success. */
-    fun archiveMessage(message: MessageEntity) {
+    /** Real server-side move of the whole row (every message in a thread) to Archive. Offers Undo (see [undoLastMove]) on success. */
+    fun archiveRow(summary: ConversationSummary) {
         viewModelScope.launch {
-            when (val result = mailRepository.moveMessageToArchive(message.accountId, message.folderName, message.uid)) {
-                is MoveOutcome.Success ->
-                    _undoableAction.value = UndoableMoveAction(message, message.folderName, result.destinationFolderKey, "Archived")
-                is MoveOutcome.Failure -> _syncError.value = result.reason
+            val (action, failures) = moveMessages(mailRepository.getRowMessages(summary), "Archived") {
+                mailRepository.moveMessageToArchive(it.accountId, it.folderName, it.uid)
             }
+            action?.let { _undoableAction.value = it }
+            if (failures.isNotEmpty()) _syncError.value = failures.joinToString("\n")
         }
     }
 
@@ -280,16 +290,9 @@ class InboxViewModel @Inject constructor(
         val action = _undoableAction.value ?: return
         _undoableAction.value = null
         viewModelScope.launch {
-            val result = mailRepository.undoMove(
-                action.message.accountId,
-                action.originalFolderKey,
-                action.destinationFolderKey,
-                action.message.messageIdHeader,
-            )
-            when (result) {
-                is UndoMoveOutcome.Failure -> _syncError.value = result.reason
-                is UndoMoveOutcome.Success -> if (action.originalFolderKey == folderKey) sync()
-            }
+            val failures = mailRepository.undoMoves(action)
+            if (failures.isNotEmpty()) _syncError.value = failures.joinToString("\n")
+            if (action.originalFolderKey == folderKey) sync()
         }
     }
 
@@ -316,11 +319,16 @@ class InboxViewModel @Inject constructor(
         _selectedIds.value = emptySet()
     }
 
+    /** Every message behind the currently selected rows — a selected thread row covers its whole thread. */
+    private suspend fun selectedMessages(): List<MessageEntity> {
+        val selected = _selectedIds.value
+        return messages.value.filter { it.latestMessage.id in selected }.flatMap { mailRepository.getRowMessages(it) }
+    }
+
     /** Marks every currently selected message read/unread, then exits selection mode. */
     fun bulkSetRead(isRead: Boolean) {
-        val selected = _selectedIds.value
-        val targets = messages.value.map { it.latestMessage }.filter { it.id in selected }
         viewModelScope.launch {
+            val targets = selectedMessages()
             targets.forEach { mailRepository.setMessageRead(it.accountId, it.folderName, it.uid, isRead) }
             _infoMessage.value = if (isRead) pluralMessage(targets.size, "Marked read") else pluralMessage(targets.size, "Marked unread")
             _selectedIds.value = emptySet()
@@ -329,9 +337,8 @@ class InboxViewModel @Inject constructor(
 
     /** Moves every currently selected message to Trash, then exits selection mode. */
     fun bulkMoveToTrash() {
-        val selected = _selectedIds.value
-        val targets = messages.value.map { it.latestMessage }.filter { it.id in selected }
         viewModelScope.launch {
+            val targets = selectedMessages()
             val failures = targets.mapNotNull { message ->
                 val result = mailRepository.moveMessageToTrash(message.accountId, message.folderName, message.uid)
                 (result as? MoveOutcome.Failure)?.reason
@@ -343,9 +350,8 @@ class InboxViewModel @Inject constructor(
 
     /** Moves every currently selected message to Archive, then exits selection mode. */
     fun bulkArchive() {
-        val selected = _selectedIds.value
-        val targets = messages.value.map { it.latestMessage }.filter { it.id in selected }
         viewModelScope.launch {
+            val targets = selectedMessages()
             val failures = targets.mapNotNull { message ->
                 val result = mailRepository.moveMessageToArchive(message.accountId, message.folderName, message.uid)
                 (result as? MoveOutcome.Failure)?.reason
@@ -357,9 +363,8 @@ class InboxViewModel @Inject constructor(
 
     /** Moves every currently selected message to [targetFolderKey], then exits selection mode. */
     fun bulkMoveTo(targetFolderKey: String) {
-        val selected = _selectedIds.value
-        val targets = messages.value.map { it.latestMessage }.filter { it.id in selected }
         viewModelScope.launch {
+            val targets = selectedMessages()
             val failures = targets.mapNotNull { message ->
                 val result = mailRepository.moveMessage(message.accountId, message.folderName, message.uid, targetFolderKey)
                 (result as? MoveOutcome.Failure)?.reason

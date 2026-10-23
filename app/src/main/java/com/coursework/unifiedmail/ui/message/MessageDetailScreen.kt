@@ -72,6 +72,8 @@ fun MessageDetailScreen(
     onReply: (accountId: String, folderKey: String, uid: Long) -> Unit,
     onReplyAll: (accountId: String, folderKey: String, uid: Long) -> Unit,
     onForward: (accountId: String, folderKey: String, uid: Long) -> Unit,
+    // Extra top-bar actions supplied by the host — the wide-screen pane's full-screen toggle.
+    paneActions: @Composable () -> Unit = {},
     viewModel: MessageDetailViewModel = hiltViewModel(),
 ) {
     val message by viewModel.message.collectAsState()
@@ -263,6 +265,7 @@ fun MessageDetailScreen(
                     }
                 },
                 actions = {
+                    paneActions()
                     IconButton(onClick = viewModel::openHeaders) {
                         Icon(Icons.Filled.Info, contentDescription = "View headers")
                     }

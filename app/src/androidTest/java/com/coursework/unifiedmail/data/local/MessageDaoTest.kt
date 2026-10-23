@@ -96,7 +96,7 @@ class MessageDaoTest {
             ),
         )
 
-        val conversations = messageDao.observeConversations("acc1", "INBOX").first()
+        val conversations = messageDao.observeConversations("acc1", "INBOX", threaded = true).first()
 
         assertEquals(2, conversations.size)
         val convA = conversations.first { it.latestMessage.conversationId == "conv-a" }
@@ -104,6 +104,28 @@ class MessageDaoTest {
         assertEquals(2, convA.messageCount)
         val convB = conversations.first { it.latestMessage.conversationId == "conv-b" }
         assertEquals(1, convB.messageCount)
+    }
+
+    @Test
+    fun observeConversations_totalsCoverEveryMessageButShowTheLatest() = runBlocking {
+        accountDao.insert(account("acc1"))
+        messageDao.upsertAll(
+            listOf(
+                message("m1", "acc1", 1, "conv-a", sentAt = 100).copy(isRead = false, isFlagged = true, hasAttachments = true),
+                message("m2", "acc1", 2, "conv-a", sentAt = 300).copy(isRead = true),
+                message("m3", "acc1", 3, "conv-a", sentAt = 200).copy(isRead = true),
+            ),
+        )
+
+        val conversation = messageDao.observeConversations("acc1", "INBOX", threaded = true).first().single()
+
+        // The extra SUM aggregates must not disturb which row the bare columns come from.
+        assertEquals("m2", conversation.latestMessage.id)
+        assertEquals(3, conversation.messageCount)
+        assertEquals(1, conversation.unreadCount)
+        assertEquals(1, conversation.flaggedCount)
+        assertEquals(1, conversation.attachmentCount)
+        assertEquals(listOf("m1", "m3", "m2"), messageDao.getConversationMessages("acc1", "INBOX", "conv-a").map { it.id })
     }
 
     @Test
@@ -117,7 +139,7 @@ class MessageDaoTest {
             ),
         )
 
-        val conversations = messageDao.observeUnifiedConversations("INBOX").first()
+        val conversations = messageDao.observeUnifiedConversations("INBOX", threaded = true).first()
 
         assertEquals(1, conversations.size)
         assertEquals("active", conversations.first().latestMessage.accountId)
@@ -133,7 +155,7 @@ class MessageDaoTest {
             ),
         )
 
-        val results = messageDao.searchUnified("INBOX", "budget", hasAttachmentOnly = false, fromQuery = "").first()
+        val results = messageDao.searchUnified("INBOX", "budget", hasAttachmentOnly = false, unreadOnly = false, flaggedOnly = false, fromQuery = "", threaded = true).first()
 
         assertEquals(1, results.size)
         assertEquals("m1", results.first().latestMessage.id)

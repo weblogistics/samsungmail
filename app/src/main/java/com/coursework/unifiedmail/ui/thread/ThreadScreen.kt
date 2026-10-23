@@ -56,6 +56,8 @@ import com.coursework.unifiedmail.ui.inbox.SwipeActionsBox
 fun ThreadScreen(
     onBack: () -> Unit,
     onMessageClick: (folderKey: String, uid: Long) -> Unit,
+    // Extra top-bar actions supplied by the host — the wide-screen pane's full-screen toggle.
+    paneActions: @Composable () -> Unit = {},
     viewModel: ThreadViewModel = hiltViewModel(),
 ) {
     val messages by viewModel.messages.collectAsState()
@@ -89,6 +91,7 @@ fun ThreadScreen(
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
                     }
                 },
+                actions = { paneActions() },
             )
         },
     ) { padding ->

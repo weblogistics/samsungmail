@@ -7,10 +7,28 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import kotlinx.coroutines.flow.Flow
 
+/**
+ * One inbox row: the newest message of a conversation plus totals across all of its messages, so
+ * the row can show e.g. "unread" when only an older message in the thread is unread.
+ */
 data class ConversationSummary(
     @Embedded val latestMessage: MessageEntity,
     val messageCount: Int,
-)
+    val unreadCount: Int,
+    val flaggedCount: Int,
+    val attachmentCount: Int,
+) {
+    val isThread: Boolean get() = messageCount > 1
+}
+
+// Shared by every grouped query below. Only SUM/COUNT are added alongside the single MAX in each
+// ORDER BY — a second min()/max() aggregate would break SQLite's guarantee that the bare
+// `messages.*` columns come from the newest row (see observeConversations).
+private const val CONVERSATION_COLUMNS =
+    "messages.*, COUNT(*) as messageCount, " +
+        "SUM(CASE WHEN messages.isRead = 0 THEN 1 ELSE 0 END) as unreadCount, " +
+        "SUM(messages.isFlagged) as flaggedCount, " +
+        "SUM(messages.hasAttachments) as attachmentCount"
 
 data class AccountUnreadCount(val accountId: String, val unreadCount: Int)
 
@@ -75,7 +93,7 @@ interface MessageDao {
     // false groups by the message's own (unique) id instead of its conversationId, so every
     // message becomes its own one-row "conversation" — see AppSettings.threadedConversations.
     @Query(
-        "SELECT messages.*, COUNT(*) as messageCount FROM messages " +
+        "SELECT $CONVERSATION_COLUMNS FROM messages " +
             "WHERE messages.accountId = :accountId AND messages.folderName = :folderName " +
             "GROUP BY CASE WHEN :threaded = 1 THEN messages.conversationId ELSE messages.id END " +
             "ORDER BY MAX(COALESCE(messages.sentDateEpochMillis, messages.receivedDateEpochMillis)) DESC",
@@ -90,8 +108,16 @@ interface MessageDao {
     )
     fun observeConversationMessages(accountId: String, folderName: String, conversationId: String): Flow<List<MessageEntity>>
 
+    /** One-shot form of [observeConversationMessages] — what a whole-thread swipe or bulk action acts on. */
     @Query(
-        "SELECT messages.*, COUNT(*) as messageCount FROM messages " +
+        "SELECT * FROM messages WHERE accountId = :accountId AND folderName = :folderName " +
+            "AND conversationId = :conversationId " +
+            "ORDER BY COALESCE(sentDateEpochMillis, receivedDateEpochMillis) ASC",
+    )
+    suspend fun getConversationMessages(accountId: String, folderName: String, conversationId: String): List<MessageEntity>
+
+    @Query(
+        "SELECT $CONVERSATION_COLUMNS FROM messages " +
             "INNER JOIN accounts ON messages.accountId = accounts.id " +
             "WHERE messages.folderName = :folderName AND accounts.isActive = 1 " +
             "GROUP BY CASE WHEN :threaded = 1 THEN messages.conversationId ELSE messages.id END " +
@@ -103,7 +129,7 @@ interface MessageDao {
     // to make each filter optional from a single query rather than needing a family of
     // near-duplicate @Query methods.
     @Query(
-        "SELECT messages.*, COUNT(*) as messageCount FROM messages " +
+        "SELECT $CONVERSATION_COLUMNS FROM messages " +
             "INNER JOIN accounts ON messages.accountId = accounts.id " +
             "WHERE messages.folderName = :folderName AND accounts.isActive = 1 " +
             "AND (:query = '' OR messages.subject LIKE '%' || :query || '%' " +
@@ -129,7 +155,7 @@ interface MessageDao {
 
     /** Same filter shape as [searchUnified], scoped to one account/folder instead of every active account's given folder. */
     @Query(
-        "SELECT messages.*, COUNT(*) as messageCount FROM messages " +
+        "SELECT $CONVERSATION_COLUMNS FROM messages " +
             "WHERE messages.accountId = :accountId AND messages.folderName = :folderName " +
             "AND (:query = '' OR messages.subject LIKE '%' || :query || '%' " +
             "  OR messages.fromAddress LIKE '%' || :query || '%' " +

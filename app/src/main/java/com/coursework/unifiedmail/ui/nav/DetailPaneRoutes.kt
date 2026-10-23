@@ -5,13 +5,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Email
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.navArgument
 import com.coursework.unifiedmail.ui.components.EmptyState
+import com.coursework.unifiedmail.ui.components.FullScreenToggleButton
 import com.coursework.unifiedmail.ui.message.MessageDetailScreen
 import com.coursework.unifiedmail.ui.thread.ThreadScreen
 
@@ -46,6 +49,9 @@ fun detailPaneThreadRoute(accountId: String, folderKey: String, conversationId: 
  * a row in the list pane navigates [navController] (see call sites in UnifiedInboxScreen /
  * InboxScreen) rather than the outer app-level controller; reply/reply-all/forward still bubble
  * out to the outer controller so Compose stays a full-screen flow over both panes.
+ *
+ * [isFullScreen]/[onFullScreenChange] let the open message or thread take over the whole screen
+ * (the host hides the list pane); it drops back to the split automatically once nothing is open.
  */
 @Composable
 fun MessageDetailPane(
@@ -53,8 +59,18 @@ fun MessageDetailPane(
     onReply: (accountId: String, folderKey: String, uid: Long) -> Unit,
     onReplyAll: (accountId: String, folderKey: String, uid: Long) -> Unit,
     onForward: (accountId: String, folderKey: String, uid: Long) -> Unit,
+    isFullScreen: Boolean,
+    onFullScreenChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
+    LaunchedEffect(currentRoute) {
+        if (currentRoute == DetailPaneRoutes.EMPTY && isFullScreen) onFullScreenChange(false)
+    }
+    val paneActions: @Composable () -> Unit = {
+        FullScreenToggleButton(isFullScreen = isFullScreen, onToggle = { onFullScreenChange(!isFullScreen) })
+    }
+
     NavHost(
         navController = navController,
         startDestination = DetailPaneRoutes.EMPTY,
@@ -80,6 +96,7 @@ fun MessageDetailPane(
                 onReply = onReply,
                 onReplyAll = onReplyAll,
                 onForward = onForward,
+                paneActions = paneActions,
             )
         }
         composable(
@@ -96,6 +113,7 @@ fun MessageDetailPane(
                 onMessageClick = { folderKey, uid ->
                     navController.navigate(DetailPaneRoutes.messageDetail(accountId, folderKey, uid))
                 },
+                paneActions = paneActions,
             )
         }
     }

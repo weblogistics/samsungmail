@@ -6,13 +6,12 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -28,6 +27,7 @@ import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Forum
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -35,8 +35,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.coursework.unifiedmail.data.local.MessageEntity
 import com.coursework.unifiedmail.data.settings.ListDensity
@@ -74,6 +80,10 @@ fun MessageListItem(
     swipeLeftAction: SwipeAction,
     accountColor: Color? = null,
     conversationCount: Int = 1,
+    // Thread-wide state for a threaded row — e.g. unread if *any* message in it is unread, not
+    // just the newest one shown.
+    hasUnread: Boolean = !message.isRead,
+    hasAttachments: Boolean = message.hasAttachments,
     density: ListDensity = ListDensity.COMFORTABLE,
     isSelected: Boolean = false,
     selectionModeActive: Boolean = false,
@@ -82,107 +92,149 @@ fun MessageListItem(
 ) {
     val haptic = LocalHapticFeedback.current
 
-    Row(modifier = Modifier.fillMaxWidth()) {
-        if (accountColor != null) {
-            Box(
-                modifier = Modifier
-                    .width(4.dp)
-                    .fillMaxHeight()
-                    .background(accountColor),
-            )
-        }
-        Box(modifier = Modifier.weight(1f)) {
-            SwipeActionsBox(
-                swipeRightAction = swipeRightAction,
-                swipeLeftAction = swipeLeftAction,
-                onToggleRead = onToggleRead,
-                onRemove = onRemove,
-                onArchive = onArchive,
-                onToggleFlag = onToggleFlag,
-                enabled = !selectionModeActive,
-            ) {
-                val fontWeight = if (message.isRead) FontWeight.Normal else FontWeight.Bold
-                val senderLabel = message.fromPersonal?.takeIf { it.isNotBlank() }
-                    ?: message.fromAddress ?: "Unknown sender"
+    // The account stripe is drawn into the space left by the start padding rather than laid out as
+    // a fillMaxHeight() sibling — inside a LazyColumn item there's no bounded height for that to
+    // fill, so it collapsed to nothing.
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .drawBehind {
+                if (accountColor != null) drawRect(accountColor, size = Size(ACCOUNT_STRIPE_WIDTH.toPx(), size.height))
+            }
+            .padding(start = if (accountColor != null) ACCOUNT_STRIPE_WIDTH else 0.dp),
+    ) {
+        SwipeActionsBox(
+            swipeRightAction = swipeRightAction,
+            swipeLeftAction = swipeLeftAction,
+            onToggleRead = onToggleRead,
+            onRemove = onRemove,
+            onArchive = onArchive,
+            onToggleFlag = onToggleFlag,
+            enabled = !selectionModeActive,
+        ) {
+            val fontWeight = if (hasUnread) FontWeight.Bold else FontWeight.Normal
+            val senderLabel = message.fromPersonal?.takeIf { it.isNotBlank() }
+                ?: message.fromAddress ?: "Unknown sender"
+            val isThread = conversationCount > 1
+            val threadLineColor = MaterialTheme.colorScheme.primary
 
-                ListItem(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            if (isSelected) MaterialTheme.colorScheme.primaryContainer
-                            else MaterialTheme.colorScheme.surface,
-                        )
-                        .combinedClickable(
-                            onClick = if (selectionModeActive) onToggleSelect else onClick,
-                            // A small tactile confirmation that a long-press actually registered
-                            // and entered selection mode, rather than the row just doing nothing
-                            // visible for a beat.
-                            onLongClick = {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onLongClick()
-                            },
-                        )
-                        .padding(vertical = if (density == ListDensity.COMPACT) 0.dp else 6.dp),
-                    leadingContent = {
-                        if (selectionModeActive) {
-                            Checkbox(checked = isSelected, onCheckedChange = { onToggleSelect() })
-                        } else {
-                            SenderAvatar(senderLabel)
-                        }
-                    },
-                    headlineContent = {
-                        val subjectText = message.subject?.takeIf { it.isNotBlank() } ?: "(no subject)"
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (message.isAnswered) {
-                                Icon(
-                                    Icons.AutoMirrored.Filled.Reply,
-                                    contentDescription = "Replied",
-                                    modifier = Modifier.size(14.dp).padding(end = 2.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            Text(
-                                text = if (conversationCount > 1) "$subjectText ($conversationCount)" else subjectText,
-                                fontWeight = fontWeight,
-                                maxLines = 1,
+            ListItem(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        if (isSelected) MaterialTheme.colorScheme.primaryContainer
+                        else MaterialTheme.colorScheme.surface,
+                    )
+                    // Marks a thread row (as opposed to a single email) with a line down its
+                    // left edge. Drawn *after* the content: ListItem paints its own opaque
+                    // container, which hid a line drawn behind it everywhere but the padding.
+                    .drawWithContent {
+                        drawContent()
+                        if (isThread) drawRect(threadLineColor, size = Size(THREAD_LINE_WIDTH.toPx(), size.height))
+                    }
+                    .combinedClickable(
+                        onClick = if (selectionModeActive) onToggleSelect else onClick,
+                        // A small tactile confirmation that a long-press actually registered
+                        // and entered selection mode, rather than the row just doing nothing
+                        // visible for a beat.
+                        onLongClick = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onLongClick()
+                        },
+                    )
+                    .padding(vertical = if (density == ListDensity.COMPACT) 0.dp else 6.dp),
+                leadingContent = {
+                    if (selectionModeActive) {
+                        Checkbox(checked = isSelected, onCheckedChange = { onToggleSelect() })
+                    } else {
+                        SenderAvatar(senderLabel)
+                    }
+                },
+                headlineContent = {
+                    val subjectText = message.subject?.takeIf { it.isNotBlank() } ?: "(no subject)"
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (message.isAnswered) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.Reply,
+                                contentDescription = "Replied",
+                                modifier = Modifier.size(14.dp).padding(end = 2.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                    },
-                    supportingContent = {
-                        Column {
-                            Text(text = senderLabel, fontWeight = fontWeight, maxLines = 1)
-                            if (density != ListDensity.COMPACT && message.bodyPreview.isNotBlank()) {
-                                Text(text = message.bodyPreview, maxLines = 1)
-                            }
+                        Text(
+                            text = subjectText,
+                            fontWeight = fontWeight,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        if (isThread) ThreadCountBadge(conversationCount)
+                    }
+                },
+                supportingContent = {
+                    Column {
+                        Text(text = senderLabel, fontWeight = fontWeight, maxLines = 1)
+                        if (density != ListDensity.COMPACT && message.bodyPreview.isNotBlank()) {
+                            Text(text = message.bodyPreview, maxLines = 1)
                         }
-                    },
-                    trailingContent = {
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text(text = formatRelativeDate(message.sentDateEpochMillis ?: message.receivedDateEpochMillis))
-                            if (!message.isRead) {
-                                Box(
-                                    modifier = Modifier
-                                        .padding(top = 4.dp)
-                                        .size(10.dp)
-                                        .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.primary),
-                                )
-                            }
-                            if (message.hasAttachments) {
-                                Icon(
-                                    Icons.Filled.AttachFile,
-                                    contentDescription = "Has attachments",
-                                    modifier = Modifier
-                                        .padding(top = 4.dp)
-                                        .size(16.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
+                    }
+                },
+                trailingContent = {
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(text = formatRelativeDate(message.sentDateEpochMillis ?: message.receivedDateEpochMillis))
+                        if (hasUnread) {
+                            Box(
+                                modifier = Modifier
+                                    .padding(top = 4.dp)
+                                    .size(10.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary),
+                            )
                         }
-                    },
-                )
-            }
+                        if (hasAttachments) {
+                            Icon(
+                                Icons.Filled.AttachFile,
+                                contentDescription = "Has attachments",
+                                modifier = Modifier
+                                    .padding(top = 4.dp)
+                                    .size(16.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                },
+            )
         }
+    }
+}
+
+private val ACCOUNT_STRIPE_WIDTH = 4.dp
+private val THREAD_LINE_WIDTH = 4.dp
+
+/** Pill after a thread row's subject showing how many messages it holds — reads as "a conversation", unlike a bare "(3)". */
+@Composable
+private fun ThreadCountBadge(count: Int) {
+    Row(
+        modifier = Modifier
+            .padding(start = 6.dp)
+            .clip(RoundedCornerShape(50))
+            .background(MaterialTheme.colorScheme.primary)
+            .padding(horizontal = 6.dp, vertical = 1.dp)
+            .semantics(mergeDescendants = true) { contentDescription = "Thread of $count messages" },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            Icons.Filled.Forum,
+            contentDescription = null,
+            modifier = Modifier.size(12.dp),
+            tint = MaterialTheme.colorScheme.onPrimary,
+        )
+        Text(
+            text = count.toString(),
+            modifier = Modifier.padding(start = 3.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onPrimary,
+        )
     }
 }
 

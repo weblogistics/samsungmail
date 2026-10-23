@@ -347,6 +347,11 @@ class FakeMessageDao : MessageDao {
                 .sortedBy { it.sentDateEpochMillis ?: it.receivedDateEpochMillis ?: 0L },
         )
 
+    override suspend fun getConversationMessages(accountId: String, folderName: String, conversationId: String): List<MessageEntity> =
+        messages
+            .filter { it.accountId == accountId && it.folderName == folderName && it.conversationId == conversationId }
+            .sortedBy { it.sentDateEpochMillis ?: it.receivedDateEpochMillis ?: 0L }
+
     override fun observeUnifiedConversations(folderName: String, threaded: Boolean): Flow<List<ConversationSummary>> =
         flowOf(toConversations(messages.filter { it.folderName == folderName }, threaded))
 
@@ -405,7 +410,13 @@ class FakeMessageDao : MessageDao {
     private fun toConversations(list: List<MessageEntity>, threaded: Boolean = true): List<ConversationSummary> =
         list.groupBy { if (threaded) it.conversationId else it.id }.map { (_, group) ->
             val latest = group.maxBy { it.sentDateEpochMillis ?: it.receivedDateEpochMillis ?: 0L }
-            ConversationSummary(latest, group.size)
+            ConversationSummary(
+                latestMessage = latest,
+                messageCount = group.size,
+                unreadCount = group.count { !it.isRead },
+                flaggedCount = group.count { it.isFlagged },
+                attachmentCount = group.count { it.hasAttachments },
+            )
         }
 }
 

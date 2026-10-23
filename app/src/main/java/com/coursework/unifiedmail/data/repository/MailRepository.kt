@@ -135,6 +135,17 @@ class MailRepository @Inject constructor(
     fun observeConversationMessages(accountId: String, folderKey: String, conversationId: String): Flow<List<MessageEntity>> =
         messageDao.observeConversationMessages(accountId, folderKey, conversationId)
 
+    /**
+     * Every message an inbox row stands for: the whole conversation (within that folder) for a
+     * threaded row, otherwise just the one message.
+     */
+    suspend fun getRowMessages(summary: ConversationSummary): List<MessageEntity> {
+        val latest = summary.latestMessage
+        if (!summary.isThread) return listOf(latest)
+        return messageDao.getConversationMessages(latest.accountId, latest.folderName, latest.conversationId)
+            .ifEmpty { listOf(latest) }
+    }
+
     /** INBOX conversations across every active account, newest first — the app's home view. */
     fun observeUnifiedInbox(threaded: Boolean): Flow<List<ConversationSummary>> =
         messageDao.observeUnifiedConversations(INBOX_FOLDER_KEY, threaded)
