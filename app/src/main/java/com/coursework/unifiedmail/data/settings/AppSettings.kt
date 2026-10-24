@@ -39,6 +39,9 @@ data class AppSettings(
     // NotificationHelper.showNewMailNotification) or just a bare "N new messages" count — off is
     // the more private choice for a shared or lock-screen-visible device.
     val showNotificationPreview: Boolean = true,
+    // Whether each message list row shows the sender above the subject. Off (the default)
+    // keeps the subject as the prominent headline line, matching the existing layout.
+    val senderFirstInList: Boolean = false,
 ) {
     val isPushSync: Boolean get() = syncIntervalMinutes == ON_ARRIVAL_MINUTES
 

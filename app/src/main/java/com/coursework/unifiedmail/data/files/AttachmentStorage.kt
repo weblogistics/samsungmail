@@ -43,17 +43,31 @@ class AttachmentStorage @Inject constructor(
     }
 
     /**
-     * The MIME type to hand a viewer for [attachment]. Many senders label every attachment
-     * `application/octet-stream` (or nothing at all), which no specific viewer claims — Android
-     * then offers only a few catch-all apps instead of the default one for that file type. In
-     * that case, infer the type from the file extension instead.
+     * The MIME type to hand a viewer for [attachment]. Checked in order of how trustworthy each
+     * signal actually is:
+     *  1. The file's own magic-number header, when it's a type we can recognize that way (a real
+     *     PDF always starts with `%PDF-`, say) — this is the one signal a sender can't get wrong,
+     *     since it's not metadata they wrote, it's the content itself.
+     *  2. The type [MimeTypeMap] derives from the file extension — senders routinely declare
+     *     something generic (`application/octet-stream`) or just nonstandard (`application/x-pdf`
+     *     instead of `application/pdf`) that no specific viewer's intent filter claims, so Android
+     *     falls back to its broad "every app that handles arbitrary files" chooser instead of the
+     *     one app that actually opens that file type.
+     *  3. The sender-declared type, only once neither of the above resolved anything (e.g. no
+     *     recognizable extension on the filename either).
      */
     fun viewerMimeType(attachment: DownloadedAttachment): String {
-        val declared = attachment.mimeType?.lowercase()?.takeIf { it.isNotBlank() && it !in GENERIC_MIME_TYPES }
-        if (declared != null) return declared
+        sniffMimeType(attachment.bytes)?.let { return it }
         val extension = attachment.fileName.substringAfterLast('.', "").lowercase()
-        return MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: "application/octet-stream"
+        val fromExtension = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
+        if (fromExtension != null) return fromExtension
+        return attachment.mimeType?.lowercase()?.takeIf { it.isNotBlank() && it !in GENERIC_MIME_TYPES }
+            ?: "application/octet-stream"
     }
+
+    /** Just enough magic-number sniffing to catch the type that most commonly trips up [viewerMimeType] — a PDF with unreliable sender metadata. */
+    private fun sniffMimeType(bytes: ByteArray): String? =
+        if (bytes.size >= 5 && bytes.copyOfRange(0, 5).toString(Charsets.US_ASCII) == "%PDF-") "application/pdf" else null
 
     /**
      * Saves to the device's real, shared Downloads collection — reachable from the Files app or

@@ -83,6 +83,8 @@ fun MessageListItem(
     hasUnread: Boolean = !message.isRead,
     hasAttachments: Boolean = message.hasAttachments,
     density: ListDensity = ListDensity.COMFORTABLE,
+    // Off (default): subject is the headline, sender the supporting line below it. On: swapped.
+    senderFirstInList: Boolean = false,
     isSelected: Boolean = false,
     // Wide screens: this row is the one shown in the detail pane.
     isOpen: Boolean = false,
@@ -148,31 +150,26 @@ fun MessageListItem(
                     }
                 },
                 headlineContent = {
-                    val subjectText = message.subject?.takeIf { it.isNotBlank() } ?: "(no subject)"
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (message.isAnswered) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.Reply,
-                                contentDescription = "Replied",
-                                modifier = Modifier.size(14.dp).padding(end = 2.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Text(
-                            text = subjectText,
-                            fontWeight = fontWeight,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false),
-                        )
-                        if (isThread) ThreadCountBadge(conversationCount)
+                    if (senderFirstInList) {
+                        Text(text = senderLabel, fontWeight = fontWeight, maxLines = 1)
+                    } else {
+                        SubjectLine(message, fontWeight, isThread, conversationCount)
                     }
                 },
                 supportingContent = {
-                    Column {
-                        Text(text = senderLabel, fontWeight = fontWeight, maxLines = 1)
-                        if (density != ListDensity.COMPACT && message.bodyPreview.isNotBlank()) {
-                            Text(text = message.bodyPreview, maxLines = 1)
+                    if (senderFirstInList) {
+                        Column {
+                            SubjectLine(message, fontWeight, isThread, conversationCount)
+                            if (density != ListDensity.COMPACT && message.bodyPreview.isNotBlank()) {
+                                Text(text = message.bodyPreview, maxLines = 1)
+                            }
+                        }
+                    } else {
+                        Column {
+                            Text(text = senderLabel, fontWeight = fontWeight, maxLines = 1)
+                            if (density != ListDensity.COMPACT && message.bodyPreview.isNotBlank()) {
+                                Text(text = message.bodyPreview, maxLines = 1)
+                            }
                         }
                     }
                 },
@@ -193,6 +190,31 @@ fun MessageListItem(
                 },
             )
         }
+    }
+}
+
+/** The subject text plus its reply icon and thread-count badge — shared by the headline and
+ * supporting slots since [MessageListItem.senderFirstInList] can put it in either one. */
+@Composable
+private fun SubjectLine(message: MessageEntity, fontWeight: FontWeight, isThread: Boolean, conversationCount: Int) {
+    val subjectText = message.subject?.takeIf { it.isNotBlank() } ?: "(no subject)"
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (message.isAnswered) {
+            Icon(
+                Icons.AutoMirrored.Filled.Reply,
+                contentDescription = "Replied",
+                modifier = Modifier.size(14.dp).padding(end = 2.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Text(
+            text = subjectText,
+            fontWeight = fontWeight,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        if (isThread) ThreadCountBadge(conversationCount)
     }
 }
 

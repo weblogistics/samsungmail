@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -38,10 +39,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.coursework.unifiedmail.ui.components.FlatTextField
+import com.coursework.unifiedmail.ui.components.PasswordField
 import com.coursework.unifiedmail.ui.components.RadioOptionDialog
 import com.coursework.unifiedmail.ui.components.SecurityChipRow
 import com.coursework.unifiedmail.ui.components.SectionLabel
@@ -172,7 +173,11 @@ fun EditAccountScreen(
             modifier = Modifier
                 .padding(padding)
                 .padding(16.dp)
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(rememberScrollState())
+                // Without this, the IME just overlaps whatever field the user is typing into
+                // instead of the layout shrinking to stay above it — see AndroidManifest's
+                // matching windowSoftInputMode="adjustResize" on MainActivity.
+                .imePadding(),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             FlatTextField(
@@ -194,13 +199,11 @@ fun EditAccountScreen(
                 label = { Text("Username") },
                 modifier = Modifier.fillMaxWidth(),
             )
-            FlatTextField(
+            PasswordField(
                 value = state.password,
                 onValueChange = viewModel::onPasswordChange,
                 label = { Text("Password") },
                 placeholder = { Text("Leave blank to keep current password") },
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 modifier = Modifier.fillMaxWidth(),
             )
 

@@ -43,6 +43,7 @@ class SettingsRepository @Inject constructor(
         val UNDO_DURATION_SECONDS = intPreferencesKey("undo_duration_seconds")
         val THREADED_CONVERSATIONS = booleanPreferencesKey("threaded_conversations")
         val SHOW_NOTIFICATION_PREVIEW = booleanPreferencesKey("show_notification_preview")
+        val SENDER_FIRST_IN_LIST = booleanPreferencesKey("sender_first_in_list")
     }
 
     val settings: Flow<AppSettings> = context.settingsDataStore.data.map { prefs ->
@@ -64,6 +65,7 @@ class SettingsRepository @Inject constructor(
             undoDurationSeconds = prefs[Keys.UNDO_DURATION_SECONDS] ?: defaults.undoDurationSeconds,
             threadedConversations = prefs[Keys.THREADED_CONVERSATIONS] ?: defaults.threadedConversations,
             showNotificationPreview = prefs[Keys.SHOW_NOTIFICATION_PREVIEW] ?: defaults.showNotificationPreview,
+            senderFirstInList = prefs[Keys.SENDER_FIRST_IN_LIST] ?: defaults.senderFirstInList,
         )
     }
 
@@ -126,6 +128,10 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setShowNotificationPreview(enabled: Boolean) {
         context.settingsDataStore.edit { it[Keys.SHOW_NOTIFICATION_PREVIEW] = enabled }
+    }
+
+    suspend fun setSenderFirstInList(enabled: Boolean) {
+        context.settingsDataStore.edit { it[Keys.SENDER_FIRST_IN_LIST] = enabled }
     }
 
     /**

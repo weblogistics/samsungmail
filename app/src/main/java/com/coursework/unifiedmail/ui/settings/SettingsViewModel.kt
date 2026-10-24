@@ -82,6 +82,10 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { settingsRepository.setShowNotificationPreview(enabled) }
     }
 
+    fun setSenderFirstInList(enabled: Boolean) {
+        viewModelScope.launch { settingsRepository.setSenderFirstInList(enabled) }
+    }
+
     fun setSyncIntervalMinutes(minutes: Long) {
         viewModelScope.launch {
             settingsRepository.setSyncIntervalMinutes(minutes)

@@ -20,7 +20,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.automirrored.filled.DriveFileMove
-import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
@@ -39,7 +38,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
@@ -59,6 +57,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -68,6 +68,7 @@ import com.coursework.unifiedmail.data.local.ConversationSummary
 import com.coursework.unifiedmail.data.repository.MailRepository
 import com.coursework.unifiedmail.data.settings.AppSettings
 import com.coursework.unifiedmail.ui.components.EmptyState
+import com.coursework.unifiedmail.ui.components.FlatTextField
 import com.coursework.unifiedmail.ui.components.LastSyncedText
 import com.coursework.unifiedmail.ui.components.MAX_LIST_PANE_WIDTH_DP
 import com.coursework.unifiedmail.ui.components.MIN_LIST_PANE_WIDTH_DP
@@ -121,6 +122,13 @@ fun InboxScreen(
     val isScrollingUp by rememberIsScrollingUp(listState)
     var showMoveDialog by remember { mutableStateOf(false) }
     var showEmptyTrashConfirmation by remember { mutableStateOf(false) }
+    // Starts expanded if there's already a query (e.g. restored after rotation) so an
+    // in-progress search is never hidden behind the icon unexpectedly.
+    var isSearchExpanded by rememberSaveable { mutableStateOf(searchQuery.isNotBlank()) }
+    val searchFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(isSearchExpanded) {
+        if (isSearchExpanded) searchFocusRequester.requestFocus()
+    }
     val isWideScreen = rememberIsWideScreen(settings.dualPaneMinWidthDp)
     // Only ever navigated on wide screens (see below) — on a phone-width run the list pane
     // always fills the screen and navigates the outer app-level controller exactly as before.
@@ -231,29 +239,70 @@ fun InboxScreen(
             } else {
                 TopAppBar(
                     title = {
-                        val title = if (viewModel.folderKey == MailRepository.INBOX_FOLDER_KEY) {
-                            stringResource(R.string.inbox_title)
+                        if (isSearchExpanded) {
+                            FlatTextField(
+                                value = searchQuery,
+                                onValueChange = viewModel::onSearchQueryChange,
+                                placeholder = { Text("Search this folder") },
+                                singleLine = true,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(searchFocusRequester),
+                            )
                         } else {
-                            viewModel.folderKey
+                            val title = if (viewModel.folderKey == MailRepository.INBOX_FOLDER_KEY) {
+                                stringResource(R.string.inbox_title)
+                            } else {
+                                viewModel.folderKey
+                            }
+                            Text(title)
                         }
-                        Text(title)
                     },
                     navigationIcon = {
-                        IconButton(onClick = onBack) {
+                        IconButton(
+                            onClick = {
+                                if (isSearchExpanded) {
+                                    isSearchExpanded = false
+                                    viewModel.onSearchQueryChange("")
+                                } else {
+                                    onBack()
+                                }
+                            },
+                        ) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
                         }
                     },
                     actions = {
-                        if (isTrashFolder) {
-                            IconButton(onClick = { showEmptyTrashConfirmation = true }, enabled = !isEmptyingTrash) {
-                                Icon(Icons.Filled.DeleteForever, contentDescription = "Empty trash")
+                        if (isSearchExpanded) {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { viewModel.onSearchQueryChange("") }) {
+                                    Icon(Icons.Filled.Close, contentDescription = "Clear search")
+                                }
                             }
-                        }
-                        IconButton(onClick = viewModel::markAllRead) {
-                            Icon(Icons.Filled.DoneAll, contentDescription = "Mark all read")
-                        }
-                        IconButton(onClick = viewModel::sync, enabled = !isSyncing) {
-                            Icon(Icons.Filled.Refresh, contentDescription = null)
+                        } else {
+                            IconButton(onClick = { isSearchExpanded = true }) {
+                                Icon(Icons.Filled.Search, contentDescription = "Search this folder")
+                            }
+                            MessageFilterButton(
+                                hasAttachmentOnly = hasAttachmentFilter,
+                                unreadOnly = unreadOnlyFilter,
+                                flaggedOnly = flaggedOnlyFilter,
+                                onHasAttachmentOnlyChange = viewModel::onHasAttachmentFilterChange,
+                                onUnreadOnlyChange = viewModel::onUnreadOnlyFilterChange,
+                                onFlaggedOnlyChange = viewModel::onFlaggedOnlyFilterChange,
+                                onClearFilters = viewModel::clearFilters,
+                            )
+                            if (isTrashFolder) {
+                                IconButton(onClick = { showEmptyTrashConfirmation = true }, enabled = !isEmptyingTrash) {
+                                    Icon(Icons.Filled.DeleteForever, contentDescription = "Empty trash")
+                                }
+                            }
+                            IconButton(onClick = viewModel::markAllRead) {
+                                Icon(Icons.Filled.DoneAll, contentDescription = "Mark all read")
+                            }
+                            IconButton(onClick = viewModel::sync, enabled = !isSyncing) {
+                                Icon(Icons.Filled.Refresh, contentDescription = null)
+                            }
                         }
                     },
                 )
@@ -282,9 +331,6 @@ fun InboxScreen(
                             settings = settings,
                             selectedIds = selectedIds,
                             selectionModeActive = selectionModeActive,
-                            hasAttachmentFilter = hasAttachmentFilter,
-                            unreadOnlyFilter = unreadOnlyFilter,
-                            flaggedOnlyFilter = flaggedOnlyFilter,
                             viewModel = viewModel,
                             onMessageClick = { folderKey, uid ->
                                 detailNavController.navigate(detailPaneMessageRoute(viewModel.accountId, folderKey, uid))
@@ -329,9 +375,6 @@ fun InboxScreen(
                 settings = settings,
                 selectedIds = selectedIds,
                 selectionModeActive = selectionModeActive,
-                hasAttachmentFilter = hasAttachmentFilter,
-                unreadOnlyFilter = unreadOnlyFilter,
-                flaggedOnlyFilter = flaggedOnlyFilter,
                 viewModel = viewModel,
                 onMessageClick = onMessageClick,
                 onThreadClick = onThreadClick,
@@ -354,9 +397,6 @@ private fun InboxMessageListPane(
     settings: AppSettings,
     selectedIds: Set<String>,
     selectionModeActive: Boolean,
-    hasAttachmentFilter: Boolean,
-    unreadOnlyFilter: Boolean,
-    flaggedOnlyFilter: Boolean,
     viewModel: InboxViewModel,
     onMessageClick: (folderKey: String, uid: Long) -> Unit,
     onThreadClick: (folderKey: String, conversationId: String) -> Unit,
@@ -371,37 +411,6 @@ private fun InboxMessageListPane(
             lastSyncedAtEpochMillis = lastSyncedAt,
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
         )
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-        ) {
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = viewModel::onSearchQueryChange,
-                placeholder = { Text("Search this folder") },
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                trailingIcon = {
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(onClick = { viewModel.onSearchQueryChange("") }) {
-                            Icon(Icons.Filled.Clear, contentDescription = "Clear search")
-                        }
-                    }
-                },
-                singleLine = true,
-                modifier = Modifier.weight(1f),
-            )
-            MessageFilterButton(
-                hasAttachmentOnly = hasAttachmentFilter,
-                unreadOnly = unreadOnlyFilter,
-                flaggedOnly = flaggedOnlyFilter,
-                onHasAttachmentOnlyChange = viewModel::onHasAttachmentFilterChange,
-                onUnreadOnlyChange = viewModel::onUnreadOnlyFilterChange,
-                onFlaggedOnlyChange = viewModel::onFlaggedOnlyFilterChange,
-                onClearFilters = viewModel::clearFilters,
-            )
-        }
         // Always available once there's a query, not gated on local results coming up
         // empty — the local cache is never guaranteed to have what the server does, and
         // waiting for an empty result before offering this made it easy to miss entirely.
@@ -445,6 +454,7 @@ private fun InboxMessageListPane(
                             hasUnread = summary.unreadCount > 0,
                             hasAttachments = summary.attachmentCount > 0,
                             density = settings.listDensity,
+                            senderFirstInList = settings.senderFirstInList,
                             swipeRightAction = settings.swipeRightAction,
                             swipeLeftAction = settings.swipeLeftAction,
                             onClick = {

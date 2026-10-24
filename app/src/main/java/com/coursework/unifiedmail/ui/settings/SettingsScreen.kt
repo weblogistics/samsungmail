@@ -277,6 +277,16 @@ fun SettingsScreen(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMo
                 value = settings.messageTextSize.displayLabel(),
                 onClick = { showTextSizeDialog = true },
             )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+            ) {
+                Text("Show sender above subject")
+                Switch(checked = settings.senderFirstInList, onCheckedChange = viewModel::setSenderFirstInList)
+            }
             SettingRow(
                 label = "Two-pane layout",
                 value = settings.dualPaneMinWidthDp.toDualPaneWidthLabel(),

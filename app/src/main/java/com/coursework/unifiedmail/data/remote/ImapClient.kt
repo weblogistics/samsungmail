@@ -582,17 +582,31 @@ class ImapClientImpl @Inject constructor() : ImapClient {
         }
     }
 
-    /** Depth-first walk counting [isAttachmentPart] hits in [counter][0] until reaching [targetIndex]. */
+    private fun contentIdOf(p: Part): String? =
+        (p as? MimePart)?.contentID?.trim('<', '>')?.takeIf { it.isNotBlank() }
+
+    /**
+     * Depth-first walk counting [isAttachmentPart] hits in [counter][0] until reaching
+     * [targetIndex]. Must classify each part exactly like [parseBody]'s walk does — in
+     * particular, a Content-ID'd image is inlined into the HTML there (skipped entirely, not
+     * counted as an attachment), so it has to be skipped here the same way, or this index drifts
+     * from the one [ImapAttachmentInfo] was stored under and a download returns the wrong part.
+     */
     private fun findAttachmentPart(part: Part, targetIndex: Int, counter: IntArray): Part? {
         if (!part.isMimeType("multipart/*")) return null
         val multipart = part.content as Multipart
         for (i in 0 until multipart.count) {
             val bodyPart = multipart.getBodyPart(i)
-            if (isAttachmentPart(bodyPart)) {
-                if (counter[0] == targetIndex) return bodyPart
-                counter[0]++
-            } else {
-                findAttachmentPart(bodyPart, targetIndex, counter)?.let { return it }
+            val contentId = contentIdOf(bodyPart)
+            when {
+                contentId != null && bodyPart.isMimeType("image/*") -> {
+                    // Inlined into the HTML body at sync time — see parseBody.
+                }
+                isAttachmentPart(bodyPart) -> {
+                    if (counter[0] == targetIndex) return bodyPart
+                    counter[0]++
+                }
+                else -> findAttachmentPart(bodyPart, targetIndex, counter)?.let { return it }
             }
         }
         return null
@@ -688,9 +702,6 @@ class ImapClientImpl @Inject constructor() : ImapClient {
         val inlineImages = mutableMapOf<String, Pair<String, ByteArray>>()
         var inlineImagesBytesUsed = 0L
 
-        fun contentIdOf(p: Part): String? =
-            (p as? MimePart)?.contentID?.trim('<', '>')?.takeIf { it.isNotBlank() }
-
         fun walk(p: Part) {
             runCatching {
                 when {
@@ -723,7 +734,7 @@ class ImapClientImpl @Inject constructor() : ImapClient {
                         }
                     }
                     plainText == null && p.isMimeType("text/plain") -> {
-                        plainText = (p.content as? String)?.take(BODY_TEXT_MAX_CHARS)
+                        plainText = (p.content as? String)?.take(BODY_TEXT_MAX_CHARS)?.let(::sanitizePlainText)
                     }
                     html == null && p.isMimeType("text/html") -> {
                         html = (p.content as? String)?.take(BODY_HTML_MAX_CHARS)
@@ -752,23 +763,61 @@ class ImapClientImpl @Inject constructor() : ImapClient {
         return result
     }
 
+    private fun looksLikeHtml(text: String): Boolean =
+        Regex("(?i)</?(html|body|div|span|p|br|table|tr|td|a|img|strong|em|ul|li)\\b").containsMatchIn(text)
+
     /**
-     * Falls back to this when a message has no text/plain part at all (see [parseBody]) — used
+     * One strip-tags-then-decode-entities pass. Order matters: tags are removed first so a
+     * decoded `&lt;` doesn't get mistaken for a real one, and decoding runs last so entities
+     * inside now-removed tags (e.g. an `&amp;` in a URL attribute) can't leak through.
+     */
+    private fun stripTagsAndDecodeOnce(text: String): String {
+        val withoutScriptsAndStyles = text
+            // Whole-block removal — these two need their content gone, not just the surrounding
+            // tags, otherwise a <style>/<script> block's *contents* (CSS rules, JS) are left
+            // behind as plain text — exactly what looked like "showing the code" in the list
+            // preview for HTML-only marketing/newsletter mail, which commonly embeds a large
+            // inline stylesheet.
+            .replace(Regex("(?is)<script[^>]*>.*?</script>"), " ")
+            .replace(Regex("(?is)<style[^>]*>.*?</style>"), " ")
+            // Outlook's conditional comments (<!--[if mso]>...<![endif]-->) and ordinary
+            // comments — otherwise their raw markup leaks through the same way script/style did.
+            .replace(Regex("(?s)<!--.*?-->"), " ")
+        val withoutTags = if (looksLikeHtml(withoutScriptsAndStyles)) {
+            withoutScriptsAndStyles.replace(Regex("<[^>]*>"), " ")
+        } else {
+            withoutScriptsAndStyles
+        }
+        return decodeHtmlEntities(withoutTags)
+    }
+
+    /**
+     * Some senders' mail-merge tools HTML-escape their own HTML source into the message body —
+     * so the raw MIME content has no real `<tags>` to strip (just `&lt;html&gt;&lt;body&gt;...`),
+     * and a single strip-then-decode pass just turns that escaped markup back into visible tag
+     * text ("<html><body><span>...") instead of the genuine content underneath. Running a second
+     * pass catches tags that only became real after the first pass decoded their entities, which
+     * is exactly when this happens; capped at two passes since real email never needs more and an
+     * unbounded loop would be an easy place for a malicious message to hang the sync.
+     */
+    private fun extractReadableText(raw: String): String {
+        val once = stripTagsAndDecodeOnce(raw)
+        return if (looksLikeHtml(once)) stripTagsAndDecodeOnce(once) else once
+    }
+
+    /**
+     * Used for a genuine text/plain MIME part — keeps line breaks, unlike [stripHtml], since real
+     * plain text relies on them for formatting that a decoded-from-HTML fallback never has.
+     */
+    private fun sanitizePlainText(text: String): String = extractReadableText(text)
+
+    /**
+     * Falls back to this when a message has no usable text/plain part (see [parseBody]) — used
      * for both the list preview and the plain-text detail view, so this has to produce actual
-     * readable text, not tag-soup. Previously only stripped tags themselves, which left a
-     * `<style>`/`<script>` block's *contents* (CSS rules, JS) behind as plain text — exactly what
-     * looked like "showing the code" in the list preview for HTML-only marketing/newsletter mail,
-     * which commonly embeds a large inline stylesheet.
+     * readable text, not tag-soup.
      */
     private fun stripHtml(html: String?): String? = html
-        // Whole-block removal — these two need their content gone, not just the surrounding tags.
-        ?.replace(Regex("(?is)<script[^>]*>.*?</script>"), " ")
-        ?.replace(Regex("(?is)<style[^>]*>.*?</style>"), " ")
-        // Outlook's conditional comments (<!--[if mso]>...<![endif]-->) and ordinary comments —
-        // otherwise their raw markup leaks through the same way script/style content did.
-        ?.replace(Regex("(?s)<!--.*?-->"), " ")
-        ?.replace(Regex("<[^>]*>"), " ")
-        ?.let(::decodeHtmlEntities)
+        ?.let(::extractReadableText)
         ?.replace(Regex("\\s+"), " ")
         ?.trim()
 
