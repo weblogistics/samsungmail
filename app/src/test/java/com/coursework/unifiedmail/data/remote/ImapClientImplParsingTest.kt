@@ -43,6 +43,16 @@ class ImapClientImplParsingTest {
         return Triple(plainText, html, attachments)
     }
 
+    /** Mirrors [invokeParseBody] for the private, reflection-only download-time counterpart. */
+    private fun invokeFindAttachmentPart(part: Part, targetIndex: Int): Part? {
+        val client = ImapClientImpl()
+        val method = ImapClientImpl::class.java.getDeclaredMethod(
+            "findAttachmentPart", Part::class.java, Int::class.javaPrimitiveType, IntArray::class.java,
+        )
+        method.isAccessible = true
+        return method.invoke(client, part, targetIndex, IntArray(1)) as Part?
+    }
+
     @Test
     fun `a Content-Disposition attachment part is detected`() {
         val message = reparsed {
@@ -162,5 +172,68 @@ class ImapClientImplParsingTest {
 
         assertEquals(1, attachments.size)
         assertEquals("data.bin", attachments.single().fileName)
+    }
+
+    @Test
+    fun `a plain-text part that is itself HTML-escaped markup yields readable text, not escaped tags`() {
+        // Some senders' mail-merge tools HTML-escape their own HTML source into the "plain text"
+        // alternative instead of writing real content — i.e. the raw MIME content is literally
+        // "&lt;html&gt;&lt;body&gt;...", with no real tags to strip until that's decoded. Real-world
+        // report: this showed up verbatim as "<html><body><span>" in the message list preview.
+        val message = reparsed {
+            setFrom("sender@example.com")
+            subject = "Escaped HTML plain-text part"
+            setText(
+                "&lt;html&gt;&lt;body&gt;&lt;span&gt;Your records are ready&lt;/span&gt;&lt;/body&gt;&lt;/html&gt;",
+                "UTF-8",
+            )
+        }
+
+        val (plainText, _, _) = invokeParseBody(message)
+
+        assertEquals("Your records are ready", plainText)
+    }
+
+    @Test
+    fun `downloading attachment index 0 returns the real attachment, not a filenamed inline cid image`() {
+        // Real-world report: an email with both an inline logo (Content-ID'd, referenced via
+        // cid: in the HTML) and a real PDF attachment — the PDF showed as attachment index 0 (the
+        // image is excluded from the list, see the cid-image test above), but downloading index 0
+        // actually returned the image's bytes. Cause: the inline image here also carries a
+        // filename, which real mail clients commonly do even for inline parts — satisfying
+        // isAttachmentPart the same way a real attachment does — so findAttachmentPart's counting
+        // has to skip it exactly like parseBody's walk does, or the two drift apart.
+        val message = reparsed {
+            setFrom("sender@example.com")
+            subject = "Image and PDF"
+            val related = MimeMultipart("related")
+            related.addBodyPart(MimeBodyPart().apply { setContent("<p>Hi</p><img src=\"cid:logo123\">", "text/html; charset=UTF-8") })
+            related.addBodyPart(
+                MimeBodyPart().apply {
+                    setContent(byteArrayOf(1, 2, 3, 4), "image/png")
+                    contentID = "<logo123>"
+                    fileName = "image001.png"
+                },
+            )
+
+            val mixed = MimeMultipart("mixed")
+            mixed.addBodyPart(MimeBodyPart().apply { setContent(related) })
+            mixed.addBodyPart(
+                MimeBodyPart().apply {
+                    setContent(ByteArray(10), "application/pdf")
+                    fileName = "notes.pdf"
+                    disposition = Part.ATTACHMENT
+                },
+            )
+            setContent(mixed)
+        }
+
+        val (_, _, attachments) = invokeParseBody(message)
+        assertEquals(1, attachments.size)
+        assertEquals("notes.pdf", attachments.single().fileName)
+
+        val resolved = invokeFindAttachmentPart(message, 0)
+
+        assertEquals("notes.pdf", resolved?.fileName)
     }
 }

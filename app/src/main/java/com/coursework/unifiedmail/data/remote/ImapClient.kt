@@ -798,18 +798,27 @@ class ImapClientImpl @Inject constructor() : ImapClient {
      * text ("<html><body><span>...") instead of the genuine content underneath. Running a second
      * pass catches tags that only became real after the first pass decoded their entities, which
      * is exactly when this happens; capped at two passes since real email never needs more and an
-     * unbounded loop would be an easy place for a malicious message to hang the sync.
+     * unbounded loop would be an easy place for a malicious message to hang the sync. Returns
+     * whether a second pass was needed, so callers can tell genuine content from recovered-from-
+     * escaping content and decide how to treat whitespace accordingly.
      */
-    private fun extractReadableText(raw: String): String {
+    private fun extractReadableText(raw: String): Pair<String, Boolean> {
         val once = stripTagsAndDecodeOnce(raw)
-        return if (looksLikeHtml(once)) stripTagsAndDecodeOnce(once) else once
+        return if (looksLikeHtml(once)) stripTagsAndDecodeOnce(once) to true else once to false
     }
 
     /**
      * Used for a genuine text/plain MIME part — keeps line breaks, unlike [stripHtml], since real
-     * plain text relies on them for formatting that a decoded-from-HTML fallback never has.
+     * plain text relies on them for formatting that a decoded-from-HTML fallback never has. The
+     * one exception is text recovered from HTML-escaped markup (see [extractReadableText]): at
+     * that point it's effectively HTML-derived text, not real plain text, so it gets the same
+     * whitespace treatment [stripHtml] gives genuine HTML — otherwise the spaces left behind by
+     * stripping the now-real tags show up as stray gaps instead of being collapsed away.
      */
-    private fun sanitizePlainText(text: String): String = extractReadableText(text)
+    private fun sanitizePlainText(text: String): String {
+        val (result, recoveredFromEscaping) = extractReadableText(text)
+        return if (recoveredFromEscaping) result.replace(Regex("\\s+"), " ").trim() else result
+    }
 
     /**
      * Falls back to this when a message has no usable text/plain part (see [parseBody]) — used
@@ -817,7 +826,7 @@ class ImapClientImpl @Inject constructor() : ImapClient {
      * readable text, not tag-soup.
      */
     private fun stripHtml(html: String?): String? = html
-        ?.let(::extractReadableText)
+        ?.let { extractReadableText(it).first }
         ?.replace(Regex("\\s+"), " ")
         ?.trim()
 
