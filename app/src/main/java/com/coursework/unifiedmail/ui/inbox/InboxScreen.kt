@@ -269,7 +269,10 @@ fun InboxScreen(
                                 }
                             },
                         ) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = if (isSearchExpanded) "Close search" else "Back",
+                            )
                         }
                     },
                     actions = {
@@ -301,7 +304,7 @@ fun InboxScreen(
                                 Icon(Icons.Filled.DoneAll, contentDescription = "Mark all read")
                             }
                             IconButton(onClick = viewModel::sync, enabled = !isSyncing) {
-                                Icon(Icons.Filled.Refresh, contentDescription = null)
+                                Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
                             }
                         }
                     },

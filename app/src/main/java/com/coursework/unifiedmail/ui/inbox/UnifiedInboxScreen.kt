@@ -313,7 +313,7 @@ fun UnifiedInboxScreen(
                                     onClearFilters = viewModel::clearFilters,
                                 )
                                 IconButton(onClick = viewModel::sync, enabled = !isSyncing) {
-                                    Icon(Icons.Filled.Refresh, contentDescription = null)
+                                    Icon(Icons.Filled.Refresh, contentDescription = "Refresh")
                                 }
                             }
                         },

@@ -281,7 +281,7 @@ fun MessageDetailScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = {
@@ -348,7 +348,10 @@ fun MessageDetailScreen(
                     } else {
                         BottomBarAction(Icons.Filled.MarkEmailRead, "Read", onClick = viewModel::toggleRead)
                     }
-                    BottomBarAction(Icons.Filled.Delete, "Delete", onClick = viewModel::moveToTrash)
+                    // "Trash" not "Delete" — this moves the message to Trash (reversible, same
+                    // action InboxScreen/UnifiedInboxScreen call "Move to trash"), it doesn't
+                    // permanently delete it the way "Empty trash"/"Delete account" elsewhere do.
+                    BottomBarAction(Icons.Filled.Delete, "Trash", onClick = viewModel::moveToTrash)
                 }
             }
         },

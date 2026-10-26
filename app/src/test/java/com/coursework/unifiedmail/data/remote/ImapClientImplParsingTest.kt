@@ -236,4 +236,32 @@ class ImapClientImplParsingTest {
 
         assertEquals("notes.pdf", resolved?.fileName)
     }
+
+    @Test
+    fun `a forwarded email attached as message-rfc822 is listed as an attachment instead of silently vanishing`() {
+        // Real-world report: forwarding an email as a real attachment (not inline-quoted text —
+        // common from Outlook and support/escalation workflows) has no multipart/text/html
+        // content of its own, so recursing into it like any other unrecognized part found nothing
+        // and the forwarded message disappeared entirely with no error. Often has no filename of
+        // its own either, which previously would have reproduced the "random app chooser" bug
+        // already fixed for PDFs with unreliable metadata.
+        val forwarded = MimeMessage(session).apply {
+            setFrom("original-sender@example.com")
+            subject = "Original subject"
+            setText("Original body", "UTF-8")
+        }
+        val message = reparsed {
+            setFrom("sender@example.com")
+            subject = "Fwd: something"
+            val multipart = MimeMultipart("mixed")
+            multipart.addBodyPart(MimeBodyPart().apply { setText("See the forwarded message below", "UTF-8") })
+            multipart.addBodyPart(MimeBodyPart().apply { setContent(forwarded, "message/rfc822") })
+            setContent(multipart)
+        }
+
+        val (_, _, attachments) = invokeParseBody(message)
+
+        assertEquals(1, attachments.size)
+        assertEquals("forwarded-message.eml", attachments.single().fileName)
+    }
 }

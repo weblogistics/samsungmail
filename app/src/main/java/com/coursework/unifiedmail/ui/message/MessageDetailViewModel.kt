@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import java.io.IOException
 import javax.inject.Inject
 
 @HiltViewModel
@@ -153,21 +154,31 @@ class MessageDetailViewModel @Inject constructor(
         viewModelScope.launch {
             _downloadingIndex.value = attachment.indexInMessage
             _downloadError.value = null
-            // A previous open of this same attachment may already have it on disk — reuse that
-            // instead of re-fetching the same bytes from the server every single tap.
-            val cached = attachmentStorage.cached(attachment.id, attachment.fileName, attachment.mimeType)
-            if (cached != null) {
-                _downloadedFileUri.value = cached
-            } else {
-                val result = mailRepository.downloadAttachment(accountId, folderKey, uid, attachment.indexInMessage)
-                result.onSuccess { downloaded ->
-                    val uri = attachmentStorage.save(downloaded, attachment.id)
-                    _downloadedFileUri.value = uri to attachmentStorage.viewerMimeType(downloaded)
-                }.onFailure {
-                    _downloadError.value = describeMailError(it)
+            try {
+                // A previous open of this same attachment may already have it on disk — reuse
+                // that instead of re-fetching the same bytes from the server every single tap.
+                val cached = attachmentStorage.cached(attachment.id, attachment.fileName, attachment.mimeType)
+                if (cached != null) {
+                    _downloadedFileUri.value = cached
+                } else {
+                    val result = mailRepository.downloadAttachment(accountId, folderKey, uid, attachment.indexInMessage)
+                    result.onSuccess { downloaded ->
+                        val uri = attachmentStorage.save(downloaded, attachment.id)
+                        _downloadedFileUri.value = uri to attachmentStorage.viewerMimeType(downloaded)
+                    }.onFailure {
+                        _downloadError.value = describeMailError(it)
+                    }
                 }
+            } catch (e: IOException) {
+                // Local disk I/O (full storage, an OEM storage quirk, getExternalFilesDir()
+                // returning null) — distinct from describeMailError's network-failure framing,
+                // and must not propagate: an uncaught exception here would crash the app instead
+                // of just failing this one download, and leave the chip stuck "downloading"
+                // forever since the finally below is what actually clears that state.
+                _downloadError.value = "Couldn't save the attachment — check your device's available storage"
+            } finally {
+                _downloadingIndex.value = null
             }
-            _downloadingIndex.value = null
         }
     }
 
@@ -181,23 +192,29 @@ class MessageDetailViewModel @Inject constructor(
         viewModelScope.launch {
             _downloadingIndex.value = attachment.indexInMessage
             _downloadError.value = null
-            // Same cache [downloadAttachment] reads/writes — either action can warm it for the other.
-            val cachedBytes = attachmentStorage.cachedBytes(attachment.id, attachment.fileName)
-            if (cachedBytes != null) {
-                val downloaded = DownloadedAttachment(attachment.fileName, attachment.mimeType, cachedBytes)
-                attachmentStorage.saveToDownloads(downloaded, attachment.id)
-                _downloadSavedMessage.value = "Saved \"${downloaded.fileName}\" to Downloads"
-            } else {
-                val result = mailRepository.downloadAttachment(accountId, folderKey, uid, attachment.indexInMessage)
-                result.onSuccess { downloaded ->
-                    attachmentStorage.save(downloaded, attachment.id)
+            try {
+                // Same cache [downloadAttachment] reads/writes — either action can warm it for the other.
+                val cachedBytes = attachmentStorage.cachedBytes(attachment.id, attachment.fileName)
+                if (cachedBytes != null) {
+                    val downloaded = DownloadedAttachment(attachment.fileName, attachment.mimeType, cachedBytes)
                     attachmentStorage.saveToDownloads(downloaded, attachment.id)
                     _downloadSavedMessage.value = "Saved \"${downloaded.fileName}\" to Downloads"
-                }.onFailure {
-                    _downloadError.value = describeMailError(it)
+                } else {
+                    val result = mailRepository.downloadAttachment(accountId, folderKey, uid, attachment.indexInMessage)
+                    result.onSuccess { downloaded ->
+                        attachmentStorage.save(downloaded, attachment.id)
+                        attachmentStorage.saveToDownloads(downloaded, attachment.id)
+                        _downloadSavedMessage.value = "Saved \"${downloaded.fileName}\" to Downloads"
+                    }.onFailure {
+                        _downloadError.value = describeMailError(it)
+                    }
                 }
+            } catch (e: IOException) {
+                // See downloadAttachment's matching catch — local disk I/O failure, not network.
+                _downloadError.value = "Couldn't save the attachment — check your device's available storage"
+            } finally {
+                _downloadingIndex.value = null
             }
-            _downloadingIndex.value = null
         }
     }
 

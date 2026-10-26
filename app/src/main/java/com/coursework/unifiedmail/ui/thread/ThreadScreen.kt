@@ -83,7 +83,7 @@ fun ThreadScreen(
                 title = { Text(if (messages.size > 1) "${messages.size} messages" else "Thread") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 actions = { paneActions() },

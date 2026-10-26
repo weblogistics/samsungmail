@@ -26,8 +26,11 @@ import com.coursework.unifiedmail.testutil.FakeSmtpSender
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
+import java.io.IOException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -48,6 +51,7 @@ class MailRepositoryTest {
     private lateinit var outboxAttachmentDao: FakeOutboxAttachmentDao
     private lateinit var draftDao: FakeDraftDao
     private lateinit var settingsProvider: FakeAppSettingsProvider
+    private lateinit var repositoryDispatcher: TestDispatcher
     private lateinit var repository: MailRepository
 
     private val accountId = "acct-1"
@@ -67,10 +71,15 @@ class MailRepositoryTest {
         settingsProvider = FakeAppSettingsProvider()
         // Unconfined: the fakes never suspend for real, so background work launched via
         // repositoryScope.launch (e.g. setMessageRead's server push) runs eagerly/synchronously
-        // within the launch call itself, making it deterministic to assert on directly.
+        // within the launch call itself, making it deterministic to assert on directly. Kept as
+        // its own field (not inlined) so a test can launch its own coroutine (e.g. collecting
+        // backgroundSyncErrors) on this exact same dispatcher instance, guaranteeing it's
+        // scheduled consistently with repositoryScope's — a different TestDispatcher instance,
+        // even another UnconfinedTestDispatcher(), isn't guaranteed to interleave the same way.
+        repositoryDispatcher = UnconfinedTestDispatcher()
         repository = MailRepository(
             accountRepository, imapClient, smtpSender, folderDao, messageDao, outboxDao, attachmentDao, attachmentCache, outboxAttachmentDao, draftDao,
-            CoroutineScope(UnconfinedTestDispatcher()), settingsProvider,
+            CoroutineScope(repositoryDispatcher), settingsProvider,
         )
 
         accountRepository.accounts[accountId] = AccountEntity(
@@ -287,6 +296,26 @@ class MailRepositoryTest {
 
         assertTrue(messageDao.messages.first { it.uid == 1L }.isRead)
         assertEquals(Triple("INBOX", 1L, true), imapClient.lastSeenFlagRequested)
+    }
+
+    @Test
+    fun `setMessageRead surfaces a server push failure via backgroundSyncErrors instead of staying silent`() = runTest {
+        messageDao.messages.add(fakeMessageEntity(1))
+        folderDao.folders["$accountId|INBOX"] = FolderEntity(id = "$accountId|INBOX", accountId = accountId, fullName = "INBOX", displayName = "INBOX")
+        imapClient.setSeenFlagResult = Result.failure(IOException("offline"))
+        var captured: String? = null
+        // Launched on repositoryDispatcher itself (see its field doc) so this collector is
+        // actively subscribed before setMessageRead's own background push emits — a race against
+        // a hot, non-replaying SharedFlow otherwise, since a late subscriber misses it entirely.
+        val job = launch(repositoryDispatcher) { repository.backgroundSyncErrors.collect { captured = it } }
+
+        repository.setMessageRead(accountId, MailRepository.INBOX_FOLDER_KEY, 1, isRead = true)
+
+        // The local change still applies even though the server push failed — see the method's
+        // own comment: the two are allowed to drift, just not silently.
+        assertTrue(messageDao.messages.first { it.uid == 1L }.isRead)
+        assertTrue(captured.orEmpty().contains("read status"))
+        job.cancel()
     }
 
     @Test

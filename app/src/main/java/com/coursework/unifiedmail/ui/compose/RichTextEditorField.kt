@@ -111,7 +111,7 @@ fun RichTextEditorField(
                 Icon(Icons.Filled.Link, contentDescription = "Insert link")
             }
         }
-        val fieldValue = TextFieldValue(annotatedString = runs.toAnnotatedString(), selection = selection)
+        val fieldValue = TextFieldValue(annotatedString = runs.toAnnotatedString(MaterialTheme.colorScheme.primary), selection = selection)
         val interactionSource = remember { MutableInteractionSource() }
         val colors = TextFieldDefaults.colors(
             focusedContainerColor = Color.Transparent,
@@ -158,7 +158,10 @@ fun RichTextEditorField(
     }
 }
 
-private fun List<TextRun>.toAnnotatedString(): AnnotatedString = buildAnnotatedString {
+/** [linkColor] comes from the caller's `MaterialTheme.colorScheme` — this isn't itself a
+ * `@Composable` function, so it can't read the theme directly, and a hardcoded link color would
+ * look wrong (low-contrast, inconsistent with the rest of the app) in dark mode. */
+private fun List<TextRun>.toAnnotatedString(linkColor: Color): AnnotatedString = buildAnnotatedString {
     for (run in this@toAnnotatedString) {
         val start = length
         append(run.text)
@@ -172,7 +175,7 @@ private fun List<TextRun>.toAnnotatedString(): AnnotatedString = buildAnnotatedS
                     fontWeight = if (run.bold) FontWeight.Bold else null,
                     fontStyle = if (run.italic) FontStyle.Italic else null,
                     textDecoration = if (decorations.isNotEmpty()) TextDecoration.combine(decorations) else null,
-                    color = if (run.linkUrl != null) Color(0xFF1A73E8) else Color.Unspecified,
+                    color = if (run.linkUrl != null) linkColor else Color.Unspecified,
                 ),
                 start,
                 length,

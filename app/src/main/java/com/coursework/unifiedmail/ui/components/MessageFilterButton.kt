@@ -50,8 +50,10 @@ fun MessageFilterButton(
                 leadingIcon = { Checkbox(checked = unreadOnly, onCheckedChange = null) },
                 onClick = { onUnreadOnlyChange(!unreadOnly) },
             )
+            // "Starred" to match the star icon this toggles (MessageListItem's swipe action) and
+            // Settings' "Star/unstar" wording for the same action — not "Flagged".
             DropdownMenuItem(
-                text = { Text("Flagged") },
+                text = { Text("Starred") },
                 leadingIcon = { Checkbox(checked = flaggedOnly, onCheckedChange = null) },
                 onClick = { onFlaggedOnlyChange(!flaggedOnly) },
             )

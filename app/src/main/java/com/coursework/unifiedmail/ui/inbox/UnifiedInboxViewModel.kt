@@ -133,6 +133,11 @@ class UnifiedInboxViewModel @Inject constructor(
 
     init {
         sync()
+        // A read/flagged toggle's background push to the server (see MailRepository.setMessageRead)
+        // failing used to be silent — surface it the same way any other one-shot info is shown here.
+        viewModelScope.launch {
+            mailRepository.backgroundSyncErrors.collect { _infoMessage.value = it }
+        }
     }
 
     fun onSearchQueryChange(query: String) {

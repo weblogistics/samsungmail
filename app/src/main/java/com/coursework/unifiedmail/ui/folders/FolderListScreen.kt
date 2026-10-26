@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -32,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.coursework.unifiedmail.data.repository.MailRepository
 import com.coursework.unifiedmail.domain.folders.FolderTreeNode
+import com.coursework.unifiedmail.ui.components.EmptyState
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,7 +53,7 @@ fun FolderListScreen(
                 title = { Text("Folders") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
             )
@@ -68,10 +70,15 @@ fun FolderListScreen(
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(text = error.orEmpty(), color = MaterialTheme.colorScheme.error)
                 }
-            } else if (visibleFolders.isEmpty() && !isLoading) {
+            } else if (visibleFolders.isEmpty() && isLoading) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator()
                 }
+            } else if (visibleFolders.isEmpty()) {
+                // Loading has actually finished here (the branch above already claimed the
+                // still-loading case) — a spinner in this state never resolves, misleadingly
+                // implying the screen is still working on a genuinely empty account.
+                EmptyState(icon = Icons.Filled.Folder, message = "No folders", modifier = Modifier.fillMaxSize())
             } else {
                 LazyColumn {
                     items(visibleFolders, key = { it.folder.id }) { node ->

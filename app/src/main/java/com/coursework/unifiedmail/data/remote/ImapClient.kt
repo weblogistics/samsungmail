@@ -662,9 +662,15 @@ class ImapClientImpl @Inject constructor() : ImapClient {
      * clients use for non-ASCII names — left encoded, the real extension is hidden, so nothing
      * downstream can infer the file type from it.
      */
-    private fun attachmentFileName(part: Part): String =
-        part.fileName?.let { runCatching { MimeUtility.decodeText(it) }.getOrDefault(it) }?.takeIf { it.isNotBlank() }
-            ?: "attachment"
+    private fun attachmentFileName(part: Part): String {
+        val declared = part.fileName?.let { runCatching { MimeUtility.decodeText(it) }.getOrDefault(it) }?.takeIf { it.isNotBlank() }
+        if (declared != null) return declared
+        // A forwarded email attached as a real message (not inline-quoted text) routinely has no
+        // filename at all — generic "attachment" with no extension leaves nothing for
+        // MimeTypeMap to resolve a viewer from, reproducing the "random app chooser" bug already
+        // fixed for PDFs with unreliable metadata.
+        return if (part.isMimeType("message/rfc822")) "forwarded-message.eml" else "attachment"
+    }
 
     /**
      * [Part.getContentType] is the raw header, parameters and original casing included (e.g.
@@ -677,7 +683,12 @@ class ImapClientImpl @Inject constructor() : ImapClient {
 
     private fun isAttachmentPart(part: Part): Boolean =
         part.disposition?.equals(Part.ATTACHMENT, ignoreCase = true) == true ||
-            (!part.fileName.isNullOrBlank() && !part.isMimeType("text/*"))
+            (!part.fileName.isNullOrBlank() && !part.isMimeType("text/*")) ||
+            // A forwarded email attached as a real message (common from Outlook/support
+            // workflows) has no multipart/text/html content of its own to recurse into — treated
+            // as "none of the above" and recursed into like any other container, its content
+            // silently vanishes entirely rather than just failing to render nicely.
+            part.isMimeType("message/rfc822")
 
     /**
      * Walks a (possibly multipart) message once, capturing plain text and HTML independently —

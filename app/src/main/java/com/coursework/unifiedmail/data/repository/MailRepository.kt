@@ -32,8 +32,12 @@ import com.coursework.unifiedmail.domain.threading.ConversationThreading
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -128,6 +132,15 @@ class MailRepository @Inject constructor(
     private val folderSyncMutexes = ConcurrentHashMap<String, Mutex>()
 
     private fun mutexFor(folderId: String): Mutex = folderSyncMutexes.computeIfAbsent(folderId) { Mutex() }
+
+    // setMessageRead/setMessageFlagged push to the server in the background (see their own
+    // comments) so a toggle never stalls on a network round trip — but that means a failure there
+    // used to just vanish with the user none the wiser that the server never found out. Buffer of
+    // 1, drop-oldest: this is a "something went wrong, here's why" notice shown once via whichever
+    // screen's snackbar is listening (see InboxViewModel/UnifiedInboxViewModel), not a queue
+    // anything needs to drain — a second failure superseding an unread first one is fine.
+    private val _backgroundSyncErrors = MutableSharedFlow<String>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    val backgroundSyncErrors: SharedFlow<String> = _backgroundSyncErrors.asSharedFlow()
 
     fun observeInbox(accountId: String, threaded: Boolean): Flow<List<ConversationSummary>> =
         observeFolder(accountId, INBOX_FOLDER_KEY, threaded)
@@ -287,10 +300,12 @@ class MailRepository @Inject constructor(
         // Local state is authoritative for the UI immediately; the server push happens in the
         // background so a toggle-read tap or opening a message doesn't stall on a network round
         // trip. Best-effort: no retry queue exists yet, so a failure here (offline, server
-        // rejects the flag change, ...) is swallowed rather than surfaced — the local read state
-        // still reflects the user's intent even if the server never finds out.
+        // rejects the flag change, ...) doesn't undo the local change or block anything — but it
+        // is surfaced via backgroundSyncErrors (see its doc) so the user at least knows the
+        // server never found out, rather than the two silently drifting apart with no indication.
         repositoryScope.launch {
             runCatching { pushSeenFlag(accountId, folderKey, uid, isRead) }
+                .onFailure { _backgroundSyncErrors.tryEmit("Couldn't update read status on the server — ${describeMailError(it)}") }
         }
     }
 
@@ -300,14 +315,19 @@ class MailRepository @Inject constructor(
         repositoryScope.launch {
             runCatching {
                 val (imapConfig, folder) = resolveImapContext(accountId, folderKey) ?: return@runCatching
-                imapClient.setAnsweredFlag(imapConfig, folder.fullName, uid)
+                // getOrThrow(): setAnsweredFlag reports failure via its Result, not by throwing —
+                // without unwrapping it here, a server-side rejection would otherwise just vanish
+                // (the Result discarded), and the surrounding runCatching would never see it fail.
+                imapClient.setAnsweredFlag(imapConfig, folder.fullName, uid).getOrThrow()
             }
         }
     }
 
     private suspend fun pushSeenFlag(accountId: String, folderKey: String, uid: Long, isRead: Boolean) {
         val (imapConfig, folder) = resolveImapContext(accountId, folderKey) ?: return
-        imapClient.setSeenFlag(imapConfig, folder.fullName, uid, isRead)
+        // getOrThrow(): see markAnswered's identical comment above — setMessageRead's runCatching
+        // (and backgroundSyncErrors) can only see a failure here if it's actually thrown.
+        imapClient.setSeenFlag(imapConfig, folder.fullName, uid, isRead).getOrThrow()
     }
 
     /** Marks every currently-unread message in this folder read — e.g. the notification's "Mark all read" action. */
@@ -322,12 +342,14 @@ class MailRepository @Inject constructor(
         // Same best-effort background push as setMessageRead — see its comment.
         repositoryScope.launch {
             runCatching { pushFlaggedFlag(accountId, folderKey, uid, isFlagged) }
+                .onFailure { _backgroundSyncErrors.tryEmit("Couldn't star/unstar on the server — ${describeMailError(it)}") }
         }
     }
 
     private suspend fun pushFlaggedFlag(accountId: String, folderKey: String, uid: Long, isFlagged: Boolean) {
         val (imapConfig, folder) = resolveImapContext(accountId, folderKey) ?: return
-        imapClient.setFlaggedFlag(imapConfig, folder.fullName, uid, isFlagged)
+        // getOrThrow(): see pushSeenFlag's identical comment.
+        imapClient.setFlaggedFlag(imapConfig, folder.fullName, uid, isFlagged).getOrThrow()
     }
 
     private suspend fun resolveImapContext(accountId: String, folderKey: String): Pair<ImapConfig, FolderEntity>? {
