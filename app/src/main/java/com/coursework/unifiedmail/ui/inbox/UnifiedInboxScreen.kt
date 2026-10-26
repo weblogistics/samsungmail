@@ -214,28 +214,45 @@ fun UnifiedInboxScreen(
         // drawer only opens from an actual edge-swipe the way the user expects.
         gesturesEnabled = false,
         drawerContent = {
-            AppDrawerContent(
-                accounts = accounts,
-                accountFolders = accountFolders,
-                onCombinedViewClick = { scope.launch { drawerState.close() } },
-                onExpandAccount = { accountId -> viewModel.loadFoldersIfNeeded(accountId) },
-                onFolderClick = { accountId, folderKey ->
-                    scope.launch { drawerState.close() }
-                    onFolderClick(accountId, folderKey)
+            // gesturesEnabled = false above also took swipe-to-close on the open drawer panel
+            // with it (one flag controls both directions) — restored here the same way open was,
+            // rather than something only reachable while scrolling: a leftward drag anywhere on
+            // the open panel. detectHorizontalDragGestures waits for the drag to clear touch slop
+            // specifically on the horizontal axis before claiming it, so this doesn't fight a
+            // vertical scroll through the drawer's own expanded folder lists.
+            Box(
+                modifier = Modifier.pointerInput(drawerState) {
+                    detectHorizontalDragGestures { change, dragAmount ->
+                        if (dragAmount < 0) {
+                            change.consume()
+                            scope.launch { drawerState.close() }
+                        }
+                    }
                 },
-                onDraftsClick = {
-                    scope.launch { drawerState.close() }
-                    onDraftsClick()
-                },
-                onManageAccountsClick = {
-                    scope.launch { drawerState.close() }
-                    onManageAccountsClick()
-                },
-                onSettingsClick = {
-                    scope.launch { drawerState.close() }
-                    onSettingsClick()
-                },
-            )
+            ) {
+                AppDrawerContent(
+                    accounts = accounts,
+                    accountFolders = accountFolders,
+                    onCombinedViewClick = { scope.launch { drawerState.close() } },
+                    onExpandAccount = { accountId -> viewModel.loadFoldersIfNeeded(accountId) },
+                    onFolderClick = { accountId, folderKey ->
+                        scope.launch { drawerState.close() }
+                        onFolderClick(accountId, folderKey)
+                    },
+                    onDraftsClick = {
+                        scope.launch { drawerState.close() }
+                        onDraftsClick()
+                    },
+                    onManageAccountsClick = {
+                        scope.launch { drawerState.close() }
+                        onManageAccountsClick()
+                    },
+                    onSettingsClick = {
+                        scope.launch { drawerState.close() }
+                        onSettingsClick()
+                    },
+                )
+            }
         },
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
