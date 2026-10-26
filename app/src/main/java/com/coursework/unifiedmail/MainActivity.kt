@@ -43,6 +43,9 @@ class MainActivity : ComponentActivity() {
         // NotificationHelper) — lands on that message directly instead of just its Inbox.
         val deepLinkFolderKey = intent?.getStringExtra(EXTRA_DEEPLINK_FOLDER_KEY)
         val deepLinkUid = intent?.getLongExtra(EXTRA_DEEPLINK_UID, -1L)?.takeIf { it >= 0 }
+        // Set only by the notification's "Reply" quick action — opens straight into a reply
+        // draft for that message instead of the message itself.
+        val deepLinkReply = intent?.getBooleanExtra(EXTRA_DEEPLINK_REPLY, false) ?: false
         // Same tradeoff as MailApplication.onCreate: a single fast local DataStore read at
         // startup, blocked on briefly here since there's no reasonable async alternative for
         // "which account, if any, should auto-open on top of Unified Inbox" this early.
@@ -60,6 +63,7 @@ class MainActivity : ComponentActivity() {
                     startAccountId = startAccountId,
                     startFolderKey = deepLinkFolderKey,
                     startMessageUid = deepLinkUid,
+                    startReply = deepLinkReply,
                 )
             }
         }
@@ -81,5 +85,6 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_DEEPLINK_ACCOUNT_ID = "deeplink_account_id"
         const val EXTRA_DEEPLINK_FOLDER_KEY = "deeplink_folder_key"
         const val EXTRA_DEEPLINK_UID = "deeplink_uid"
+        const val EXTRA_DEEPLINK_REPLY = "deeplink_reply"
     }
 }

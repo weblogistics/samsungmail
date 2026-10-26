@@ -86,7 +86,13 @@ class NotificationHelper @Inject constructor(
         // Stable per message (not per account) — see the class doc above for why that matters.
         val notificationId = message.id.hashCode()
 
+        // A distinct Intent.action per MainActivity-targeting PendingIntent below (not just
+        // different extras) — two PendingIntents sharing a requestCode and component are the
+        // same PendingIntent as far as Android's concerned unless their action/data/categories
+        // differ too, so without this, tapping the notification body and tapping "Reply" would
+        // collapse into whichever one was created last.
         val contentIntent = Intent(context, MainActivity::class.java).apply {
+            action = "open:${message.id}"
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             putExtra(MainActivity.EXTRA_DEEPLINK_ACCOUNT_ID, accountId)
             putExtra(MainActivity.EXTRA_DEEPLINK_FOLDER_KEY, message.folderName)
@@ -99,11 +105,27 @@ class NotificationHelper @Inject constructor(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
+        val replyIntent = Intent(context, MainActivity::class.java).apply {
+            action = "reply:${message.id}"
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            putExtra(MainActivity.EXTRA_DEEPLINK_ACCOUNT_ID, accountId)
+            putExtra(MainActivity.EXTRA_DEEPLINK_FOLDER_KEY, message.folderName)
+            putExtra(MainActivity.EXTRA_DEEPLINK_UID, message.uid)
+            putExtra(MainActivity.EXTRA_DEEPLINK_REPLY, true)
+        }
+        val replyPendingIntent = PendingIntent.getActivity(
+            context,
+            notificationId,
+            replyIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setAutoCancel(true)
             .setContentIntent(contentPendingIntent)
             .setGroup(groupKey)
+            .addAction(0, "Reply", replyPendingIntent)
             .addAction(0, "Archive", actionPendingIntent(NotificationActionReceiver.ACTION_ARCHIVE, accountId, message, notificationId))
             .addAction(0, "Trash", actionPendingIntent(NotificationActionReceiver.ACTION_TRASH, accountId, message, notificationId))
 

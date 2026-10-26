@@ -68,17 +68,24 @@ fun MailNavGraph(
     // lands directly on that message instead of just its account's Inbox.
     startFolderKey: String? = null,
     startMessageUid: Long? = null,
+    // Set only by the notification's "Reply" quick action — opens a reply draft for that
+    // message instead of the message itself (startFolderKey/startMessageUid still required).
+    startReply: Boolean = false,
     navController: NavHostController = rememberNavController(),
 ) {
     // Unified Inbox stays the true start destination (a stable back-stack root that never
     // dead-ends if the configured default account is later deleted) — a configured
     // single-mailbox default just auto-navigates on top of it once, exactly like tapping that
     // account from the drawer would. See AppSettings.defaultViewAccountId.
-    LaunchedEffect(startAccountId, startFolderKey, startMessageUid) {
+    LaunchedEffect(startAccountId, startFolderKey, startMessageUid, startReply) {
         if (startAccountId != null) {
             navController.navigate(Routes.inbox(startAccountId))
             if (startFolderKey != null && startMessageUid != null) {
-                navController.navigate(Routes.messageDetail(startAccountId, startFolderKey, startMessageUid))
+                if (startReply) {
+                    navController.navigate(Routes.composeReply(startAccountId, startFolderKey, startMessageUid))
+                } else {
+                    navController.navigate(Routes.messageDetail(startAccountId, startFolderKey, startMessageUid))
+                }
             }
         }
     }
