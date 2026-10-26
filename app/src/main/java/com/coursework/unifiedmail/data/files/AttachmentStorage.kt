@@ -26,6 +26,22 @@ data class PickedAttachment(
 )
 
 /**
+ * Just the cache-eviction surface of [AttachmentStorage] — narrower so [MailRepository], which
+ * needs to evict a deleted message's cached attachments but otherwise has no reason to touch
+ * Android file/MediaStore APIs, can be unit-tested against a fake instead of a real [Context].
+ */
+interface AttachmentCache {
+    /** Deletes the cached file for one attachment, if any — call once a message (or just this
+     * attachment) is gone for good, so a stale copy doesn't linger on disk forever. */
+    fun deleteCached(attachmentId: String)
+
+    /** Deletes every cached attachment file belonging to any message of this account — for
+     * whole-account removal, where deleting one attachment at a time would mean first reading
+     * back every attachment row that's about to be deleted anyway. */
+    fun deleteCachedForAccount(accountId: String)
+}
+
+/**
  * Saves downloaded attachment bytes to app-scoped external storage — no runtime permission
  * needed on any supported API level, unlike shared/MediaStore locations — and hands back a
  * `content://` URI (via FileProvider) suitable for an `ACTION_VIEW` intent. Also copies files
@@ -34,7 +50,7 @@ data class PickedAttachment(
 @Singleton
 class AttachmentStorage @Inject constructor(
     @ApplicationContext private val context: Context,
-) {
+) : AttachmentCache {
     /**
      * Saves [attachment]'s bytes under a location keyed by [attachmentId] (see
      * [AttachmentEntity.id][com.coursework.unifiedmail.data.local.AttachmentEntity.id] — stable
@@ -69,12 +85,29 @@ class AttachmentStorage @Inject constructor(
         return if (file.exists()) file.readBytes() else null
     }
 
-    /** One file per attachment id — [attachmentId] can contain path separators (e.g. a nested
-     * IMAP folder name), so it's sanitized into a single safe path segment rather than used raw. */
+    override fun deleteCached(attachmentId: String) {
+        cacheDir(attachmentId).deleteRecursively()
+    }
+
+    override fun deleteCachedForAccount(accountId: String) {
+        // Cached files are keyed by attachment id ("accountId|folderKey|uid|index", sanitized —
+        // see cacheDir), so every one of this account's cache directories shares this prefix.
+        // Matching on that is cheaper than reading back every attachment row just to delete it.
+        val prefix = "${sanitize(accountId)}_"
+        cacheRoot().listFiles()?.forEach { dir -> if (dir.name.startsWith(prefix)) dir.deleteRecursively() }
+    }
+
+    private fun cacheRoot(): File = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir, "attachment_cache")
+
+    /** One directory per attachment id — [attachmentId] can contain path separators (e.g. a
+     * nested IMAP folder name), so it's sanitized into a single safe path segment rather than
+     * used raw. */
+    private fun cacheDir(attachmentId: String): File = File(cacheRoot(), sanitize(attachmentId))
+
+    private fun sanitize(id: String): String = id.replace(Regex("[^A-Za-z0-9._-]"), "_")
+
     private fun cacheFile(attachmentId: String, fileName: String): File {
-        val safeId = attachmentId.replace(Regex("[^A-Za-z0-9._-]"), "_")
-        val dir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir, "attachment_cache/$safeId")
-        dir.mkdirs()
+        val dir = cacheDir(attachmentId).apply { mkdirs() }
         return File(dir, fileName)
     }
 

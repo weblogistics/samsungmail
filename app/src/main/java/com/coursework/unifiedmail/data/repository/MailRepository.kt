@@ -1,6 +1,7 @@
 package com.coursework.unifiedmail.data.repository
 
 import android.database.sqlite.SQLiteBlobTooBigException
+import com.coursework.unifiedmail.data.files.AttachmentCache
 import com.coursework.unifiedmail.data.files.PickedAttachment
 import com.coursework.unifiedmail.data.local.AccountEntity
 import com.coursework.unifiedmail.data.local.AttachmentDao
@@ -111,6 +112,7 @@ class MailRepository @Inject constructor(
     private val messageDao: MessageDao,
     private val outboxDao: OutboxDao,
     private val attachmentDao: AttachmentDao,
+    private val attachmentCache: AttachmentCache,
     private val outboxAttachmentDao: OutboxAttachmentDao,
     private val draftDao: DraftDao,
     // Injected (see RepositoryModule.provideApplicationScope) rather than created here so tests
@@ -344,7 +346,20 @@ class MailRepository @Inject constructor(
 
     /** Removes a message from the local cache only — does not touch the server. */
     suspend fun removeMessageLocally(accountId: String, folderKey: String, uid: Long) {
-        messageDao.deleteById(messageId(accountId, folderKey, uid))
+        val id = messageId(accountId, folderKey, uid)
+        deleteAttachmentsAndCache(id)
+        messageDao.deleteById(id)
+    }
+
+    /**
+     * Deletes [messageId]'s attachment rows and their cached files — call before removing the
+     * message row itself (see [removeMessageLocally]/[syncFolder]/[emptyTrash]), so a stale copy
+     * never lingers on disk (or an orphaned row in the attachments table) once the message it
+     * belonged to is gone for good. A no-op, not an error, if the message never had attachments.
+     */
+    private suspend fun deleteAttachmentsAndCache(messageId: String) {
+        attachmentDao.getForMessage(messageId).forEach { attachmentCache.deleteCached(it.id) }
+        attachmentDao.deleteForMessage(messageId)
     }
 
     /** Folders cached for this account (from the most recent sync) — for folder browsing/move-to pickers. */
@@ -370,6 +385,7 @@ class MailRepository @Inject constructor(
         messageDao.deleteForAccount(account.id)
         folderDao.deleteForAccount(account.id)
         attachmentDao.deleteForAccount(account.id)
+        attachmentCache.deleteCachedForAccount(account.id)
     }
 
     suspend fun downloadAttachment(accountId: String, folderKey: String, uid: Long, attachmentIndex: Int): Result<DownloadedAttachment> {
@@ -447,6 +463,7 @@ class MailRepository @Inject constructor(
             // presentUids is null for fakes/tests that don't model it — skip reconciliation then
             // rather than treating "no data" as "folder is empty".
             fetchResult.presentUids?.let { presentUids ->
+                messageDao.getIdsMissing(accountId, folderKey, presentUids).forEach { deleteAttachmentsAndCache(it) }
                 messageDao.deleteMissing(accountId, folderKey, presentUids)
             }
 
@@ -718,6 +735,7 @@ class MailRepository @Inject constructor(
         )
 
         imapClient.emptyFolder(imapConfig, folder.fullName).getOrElse { return SyncOutcome.Failure(describeMailError(it)) }
+        messageDao.getIdsMissing(accountId, trashFolderKey, presentUids = emptyList()).forEach { deleteAttachmentsAndCache(it) }
         messageDao.deleteMissing(accountId, trashFolderKey, presentUids = emptyList())
         return SyncOutcome.Success(0)
     }

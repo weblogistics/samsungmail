@@ -105,6 +105,10 @@ interface MessageDao {
     @Query("DELETE FROM messages WHERE accountId = :accountId")
     suspend fun deleteForAccount(accountId: String)
 
+    /** Same WHERE clause as [deleteMissing] — call first to know which messages' attachment rows/cached files need cleaning up before they're gone. */
+    @Query("SELECT id FROM messages WHERE accountId = :accountId AND folderName = :folderName AND uid NOT IN (:presentUids)")
+    suspend fun getIdsMissing(accountId: String, folderName: String, presentUids: List<Long>): List<String>
+
     /** Prunes local rows for messages no longer present on the server (deleted/moved elsewhere). */
     @Query("DELETE FROM messages WHERE accountId = :accountId AND folderName = :folderName AND uid NOT IN (:presentUids)")
     suspend fun deleteMissing(accountId: String, folderName: String, presentUids: List<Long>)

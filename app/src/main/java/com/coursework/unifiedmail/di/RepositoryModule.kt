@@ -1,5 +1,7 @@
 package com.coursework.unifiedmail.di
 
+import com.coursework.unifiedmail.data.files.AttachmentCache
+import com.coursework.unifiedmail.data.files.AttachmentStorage
 import com.coursework.unifiedmail.data.remote.ImapClient
 import com.coursework.unifiedmail.data.remote.ImapClientImpl
 import com.coursework.unifiedmail.data.remote.SmtpSender
@@ -39,6 +41,10 @@ abstract class RepositoryModule {
     @Binds
     @Singleton
     abstract fun bindAppSettingsProvider(impl: SettingsRepository): AppSettingsProvider
+
+    @Binds
+    @Singleton
+    abstract fun bindAttachmentCache(impl: AttachmentStorage): AttachmentCache
 
     companion object {
         // Outlives any single screen's viewModelScope — for best-effort background work (e.g.

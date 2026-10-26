@@ -3,6 +3,7 @@ package com.coursework.unifiedmail.testutil
 import com.coursework.unifiedmail.data.local.AccountEntity
 import com.coursework.unifiedmail.data.local.AccountUnreadCount
 import com.coursework.unifiedmail.data.local.AddressColumns
+import com.coursework.unifiedmail.data.files.AttachmentCache
 import com.coursework.unifiedmail.data.local.AttachmentDao
 import com.coursework.unifiedmail.data.local.AttachmentEntity
 import com.coursework.unifiedmail.data.local.ConversationSummary
@@ -280,6 +281,19 @@ class FakeAttachmentDao : AttachmentDao {
     }
 }
 
+class FakeAttachmentCache : AttachmentCache {
+    val deletedAttachmentIds = mutableListOf<String>()
+    val deletedAccountIds = mutableListOf<String>()
+
+    override fun deleteCached(attachmentId: String) {
+        deletedAttachmentIds.add(attachmentId)
+    }
+
+    override fun deleteCachedForAccount(accountId: String) {
+        deletedAccountIds.add(accountId)
+    }
+}
+
 class FakeMessageDao : MessageDao {
     val messages = mutableListOf<MessageEntity>()
 
@@ -333,6 +347,9 @@ class FakeMessageDao : MessageDao {
     override suspend fun deleteForAccount(accountId: String) {
         messages.removeAll { it.accountId == accountId }
     }
+
+    override suspend fun getIdsMissing(accountId: String, folderName: String, presentUids: List<Long>): List<String> =
+        messages.filter { it.accountId == accountId && it.folderName == folderName && it.uid !in presentUids }.map { it.id }
 
     override suspend fun deleteMissing(accountId: String, folderName: String, presentUids: List<Long>) {
         messages.removeAll {

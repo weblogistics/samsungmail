@@ -14,6 +14,7 @@ import com.coursework.unifiedmail.data.remote.ImapFolderInfo
 import com.coursework.unifiedmail.data.remote.ImapMessageInfo
 import com.coursework.unifiedmail.testutil.FakeAccountRepository
 import com.coursework.unifiedmail.testutil.FakeAppSettingsProvider
+import com.coursework.unifiedmail.testutil.FakeAttachmentCache
 import com.coursework.unifiedmail.testutil.FakeAttachmentDao
 import com.coursework.unifiedmail.testutil.FakeDraftDao
 import com.coursework.unifiedmail.testutil.FakeFolderDao
@@ -43,6 +44,7 @@ class MailRepositoryTest {
     private lateinit var messageDao: FakeMessageDao
     private lateinit var outboxDao: FakeOutboxDao
     private lateinit var attachmentDao: FakeAttachmentDao
+    private lateinit var attachmentCache: FakeAttachmentCache
     private lateinit var outboxAttachmentDao: FakeOutboxAttachmentDao
     private lateinit var draftDao: FakeDraftDao
     private lateinit var settingsProvider: FakeAppSettingsProvider
@@ -59,6 +61,7 @@ class MailRepositoryTest {
         messageDao = FakeMessageDao()
         outboxDao = FakeOutboxDao()
         attachmentDao = FakeAttachmentDao()
+        attachmentCache = FakeAttachmentCache()
         outboxAttachmentDao = FakeOutboxAttachmentDao()
         draftDao = FakeDraftDao()
         settingsProvider = FakeAppSettingsProvider()
@@ -66,7 +69,7 @@ class MailRepositoryTest {
         // repositoryScope.launch (e.g. setMessageRead's server push) runs eagerly/synchronously
         // within the launch call itself, making it deterministic to assert on directly.
         repository = MailRepository(
-            accountRepository, imapClient, smtpSender, folderDao, messageDao, outboxDao, attachmentDao, outboxAttachmentDao, draftDao,
+            accountRepository, imapClient, smtpSender, folderDao, messageDao, outboxDao, attachmentDao, attachmentCache, outboxAttachmentDao, draftDao,
             CoroutineScope(UnconfinedTestDispatcher()), settingsProvider,
         )
 
@@ -290,6 +293,9 @@ class MailRepositoryTest {
     fun `syncFolder prunes local messages no longer present on the server`() = runTest {
         messageDao.messages.add(fakeMessageEntity(1))
         messageDao.messages.add(fakeMessageEntity(2))
+        attachmentDao.attachments.add(
+            AttachmentEntity(id = "$accountId|INBOX|1|0", messageId = "$accountId|INBOX|1", indexInMessage = 0, fileName = "photo.jpg", mimeType = null, sizeBytes = null),
+        )
         imapClient.messagesResult = Result.success(
             ImapFetchResult(messages = emptyList(), newLastSyncedUid = 2, presentUids = listOf(2L)),
         )
@@ -297,6 +303,10 @@ class MailRepositoryTest {
         repository.syncAccount(accountId)
 
         assertEquals(listOf(2L), messageDao.messages.map { it.uid })
+        // Message 1 was deleted/moved elsewhere (another client) — its attachment row and cached
+        // file shouldn't outlive it, same as any other deletion path.
+        assertTrue(attachmentDao.attachments.isEmpty())
+        assertEquals(listOf("$accountId|INBOX|1|0"), attachmentCache.deletedAttachmentIds)
     }
 
     @Test
@@ -365,12 +375,19 @@ class MailRepositoryTest {
         imapClient.foldersResult = Result.success(listOf(ImapFolderInfo("INBOX", "INBOX"), ImapFolderInfo("Trash", "Trash")))
         folderDao.folders["$accountId|Trash"] = FolderEntity(id = "$accountId|Trash", accountId = accountId, fullName = "Trash", displayName = "Trash")
         messageDao.messages.add(fakeMessageEntity(1, folderKey = "Trash"))
+        attachmentDao.attachments.add(
+            AttachmentEntity(id = "$accountId|Trash|1|0", messageId = "$accountId|Trash|1", indexInMessage = 0, fileName = "photo.jpg", mimeType = null, sizeBytes = null),
+        )
 
         val outcome = repository.emptyTrash(accountId)
 
         assertEquals(SyncOutcome.Success(0), outcome)
         assertEquals("Trash", imapClient.lastEmptyFolderRequested)
         assertTrue(messageDao.messages.none { it.folderName == "Trash" })
+        // A permanently deleted message's attachment row and cached file shouldn't outlive it —
+        // emptyTrash previously only pruned the message row, leaving both orphaned.
+        assertTrue(attachmentDao.attachments.isEmpty())
+        assertEquals(listOf("$accountId|Trash|1|0"), attachmentCache.deletedAttachmentIds)
     }
 
     @Test
@@ -504,6 +521,20 @@ class MailRepositoryTest {
     }
 
     @Test
+    fun `removeMessageLocally also deletes its attachment row and cached file`() = runTest {
+        messageDao.messages.add(fakeMessageEntity(1))
+        attachmentDao.attachments.add(
+            AttachmentEntity(id = "$accountId|INBOX|1|0", messageId = "$accountId|INBOX|1", indexInMessage = 0, fileName = "photo.jpg", mimeType = null, sizeBytes = null),
+        )
+
+        repository.removeMessageLocally(accountId, MailRepository.INBOX_FOLDER_KEY, uid = 1)
+
+        assertTrue(messageDao.messages.isEmpty())
+        assertTrue(attachmentDao.attachments.isEmpty())
+        assertEquals(listOf("$accountId|INBOX|1|0"), attachmentCache.deletedAttachmentIds)
+    }
+
+    @Test
     fun `deleteAccountAndCache removes the account's cached messages, folders and attachments`() = runTest {
         messageDao.messages.add(fakeMessageEntity(1))
         folderDao.folders["$accountId|INBOX"] = FolderEntity(id = "$accountId|INBOX", accountId = accountId, fullName = "INBOX", displayName = "INBOX")
@@ -517,6 +548,7 @@ class MailRepositoryTest {
         assertTrue(folderDao.folders.isEmpty())
         assertTrue(attachmentDao.attachments.isEmpty())
         assertTrue(accountRepository.accounts.isEmpty())
+        assertEquals(listOf(accountId), attachmentCache.deletedAccountIds)
     }
 
     @Test
