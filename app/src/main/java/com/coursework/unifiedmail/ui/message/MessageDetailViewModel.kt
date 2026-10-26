@@ -9,6 +9,7 @@ import com.coursework.unifiedmail.data.local.AccountEntity
 import com.coursework.unifiedmail.data.local.AttachmentEntity
 import com.coursework.unifiedmail.data.local.FolderEntity
 import com.coursework.unifiedmail.data.local.MessageEntity
+import com.coursework.unifiedmail.data.remote.DownloadedAttachment
 import com.coursework.unifiedmail.data.remote.describeMailError
 import com.coursework.unifiedmail.data.repository.AccountRepository
 import com.coursework.unifiedmail.data.repository.MailRepository
@@ -152,12 +153,19 @@ class MessageDetailViewModel @Inject constructor(
         viewModelScope.launch {
             _downloadingIndex.value = attachment.indexInMessage
             _downloadError.value = null
-            val result = mailRepository.downloadAttachment(accountId, folderKey, uid, attachment.indexInMessage)
-            result.onSuccess { downloaded ->
-                val uri = attachmentStorage.save(downloaded)
-                _downloadedFileUri.value = uri to attachmentStorage.viewerMimeType(downloaded)
-            }.onFailure {
-                _downloadError.value = describeMailError(it)
+            // A previous open of this same attachment may already have it on disk — reuse that
+            // instead of re-fetching the same bytes from the server every single tap.
+            val cached = attachmentStorage.cached(attachment.id, attachment.fileName, attachment.mimeType)
+            if (cached != null) {
+                _downloadedFileUri.value = cached
+            } else {
+                val result = mailRepository.downloadAttachment(accountId, folderKey, uid, attachment.indexInMessage)
+                result.onSuccess { downloaded ->
+                    val uri = attachmentStorage.save(downloaded, attachment.id)
+                    _downloadedFileUri.value = uri to attachmentStorage.viewerMimeType(downloaded)
+                }.onFailure {
+                    _downloadError.value = describeMailError(it)
+                }
             }
             _downloadingIndex.value = null
         }
@@ -173,12 +181,21 @@ class MessageDetailViewModel @Inject constructor(
         viewModelScope.launch {
             _downloadingIndex.value = attachment.indexInMessage
             _downloadError.value = null
-            val result = mailRepository.downloadAttachment(accountId, folderKey, uid, attachment.indexInMessage)
-            result.onSuccess { downloaded ->
-                attachmentStorage.saveToDownloads(downloaded)
+            // Same cache [downloadAttachment] reads/writes — either action can warm it for the other.
+            val cachedBytes = attachmentStorage.cachedBytes(attachment.id, attachment.fileName)
+            if (cachedBytes != null) {
+                val downloaded = DownloadedAttachment(attachment.fileName, attachment.mimeType, cachedBytes)
+                attachmentStorage.saveToDownloads(downloaded, attachment.id)
                 _downloadSavedMessage.value = "Saved \"${downloaded.fileName}\" to Downloads"
-            }.onFailure {
-                _downloadError.value = describeMailError(it)
+            } else {
+                val result = mailRepository.downloadAttachment(accountId, folderKey, uid, attachment.indexInMessage)
+                result.onSuccess { downloaded ->
+                    attachmentStorage.save(downloaded, attachment.id)
+                    attachmentStorage.saveToDownloads(downloaded, attachment.id)
+                    _downloadSavedMessage.value = "Saved \"${downloaded.fileName}\" to Downloads"
+                }.onFailure {
+                    _downloadError.value = describeMailError(it)
+                }
             }
             _downloadingIndex.value = null
         }

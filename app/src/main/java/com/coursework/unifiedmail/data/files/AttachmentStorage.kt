@@ -35,11 +35,47 @@ data class PickedAttachment(
 class AttachmentStorage @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
-    fun save(attachment: DownloadedAttachment): Uri {
-        val dir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir
-        val file = uniqueFile(dir, attachment.fileName)
+    /**
+     * Saves [attachment]'s bytes under a location keyed by [attachmentId] (see
+     * [AttachmentEntity.id][com.coursework.unifiedmail.data.local.AttachmentEntity.id] — stable
+     * across repeat opens of the same attachment, not reused for a different one) rather than
+     * [uniqueFile]'s collision-renaming — so opening the same attachment twice reuses this same
+     * file (see [cached]) instead of re-downloading it and piling up "file (1)", "file (2)", ...
+     * copies that were never actually different files.
+     */
+    fun save(attachment: DownloadedAttachment, attachmentId: String): Uri {
+        val file = cacheFile(attachmentId, attachment.fileName)
         file.writeBytes(attachment.bytes)
         return FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    }
+
+    /**
+     * A previous [save] of this exact attachment, if its bytes are still on disk — lets the
+     * caller skip re-downloading from the server just to open something already opened once.
+     * [declaredMimeType] only matters if the file's own content doesn't self-identify (see
+     * [viewerMimeType]), same as on a fresh download.
+     */
+    fun cached(attachmentId: String, fileName: String, declaredMimeType: String?): Pair<Uri, String>? {
+        val file = cacheFile(attachmentId, fileName)
+        if (!file.exists()) return null
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        return uri to viewerMimeType(DownloadedAttachment(fileName, declaredMimeType, file.readBytes()))
+    }
+
+    /** Raw bytes of a previous [save] of this attachment, if still on disk — e.g. for the
+     * explicit "Download" action, which needs actual bytes to copy rather than just a Uri. */
+    fun cachedBytes(attachmentId: String, fileName: String): ByteArray? {
+        val file = cacheFile(attachmentId, fileName)
+        return if (file.exists()) file.readBytes() else null
+    }
+
+    /** One file per attachment id — [attachmentId] can contain path separators (e.g. a nested
+     * IMAP folder name), so it's sanitized into a single safe path segment rather than used raw. */
+    private fun cacheFile(attachmentId: String, fileName: String): File {
+        val safeId = attachmentId.replace(Regex("[^A-Za-z0-9._-]"), "_")
+        val dir = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir, "attachment_cache/$safeId")
+        dir.mkdirs()
+        return File(dir, fileName)
     }
 
     /**
@@ -77,8 +113,8 @@ class AttachmentStorage @Inject constructor(
      * onward; below that this just falls back to [save] rather than requesting
      * WRITE_EXTERNAL_STORAGE for a shrinking minority of supported devices.
      */
-    fun saveToDownloads(attachment: DownloadedAttachment): Uri {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return save(attachment)
+    fun saveToDownloads(attachment: DownloadedAttachment, attachmentId: String): Uri {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return save(attachment, attachmentId)
 
         val resolver = context.contentResolver
         val values = ContentValues().apply {
