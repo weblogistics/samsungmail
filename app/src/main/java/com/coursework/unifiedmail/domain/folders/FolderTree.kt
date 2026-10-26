@@ -25,10 +25,26 @@ object FolderTree {
 
         fun buildLevel(parentFullName: String?, depth: Int): List<FolderTreeNode> =
             byParent[parentFullName].orEmpty()
-                .sortedBy { it.displayName.lowercase() }
+                .sortedWith(compareBy({ defaultFolderRank(it) }, { it.displayName.lowercase() }))
                 .map { folder -> FolderTreeNode(folder, buildLevel(folder.fullName, depth + 1), depth) }
 
         return buildLevel(null, 0)
+    }
+
+    /**
+     * Inbox/Sent/Drafts/Outbox first, in that order, then everything else alphabetically — these
+     * are the folders someone actually checks constantly, so they shouldn't be buried wherever
+     * they happen to fall alphabetically (e.g. "Archive" sorting ahead of "Inbox").
+     */
+    private fun defaultFolderRank(folder: FolderEntity): Int {
+        val name = folder.displayName
+        return when {
+            folder.fullName.equals("INBOX", ignoreCase = true) -> 0
+            name.contains("sent", ignoreCase = true) -> 1
+            name.contains("draft", ignoreCase = true) -> 2
+            name.contains("outbox", ignoreCase = true) -> 3
+            else -> 4
+        }
     }
 
     /** Depth-first flattening for a LazyColumn, skipping a node's subtree while it's collapsed. */

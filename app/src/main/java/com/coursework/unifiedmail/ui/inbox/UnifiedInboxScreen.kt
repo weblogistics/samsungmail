@@ -97,7 +97,7 @@ import kotlinx.coroutines.launch
 fun UnifiedInboxScreen(
     onManageAccountsClick: () -> Unit,
     onSettingsClick: () -> Unit,
-    onAccountClick: (accountId: String) -> Unit,
+    onFolderClick: (accountId: String, folderKey: String) -> Unit,
     onDraftsClick: () -> Unit,
     onMessageClick: (accountId: String, uid: Long) -> Unit,
     onThreadClick: (accountId: String, conversationId: String) -> Unit,
@@ -109,6 +109,7 @@ fun UnifiedInboxScreen(
 ) {
     val messages by viewModel.messages.collectAsState()
     val accounts by viewModel.accounts.collectAsState()
+    val accountFolders by viewModel.accountFolders.collectAsState()
     val isSyncing by viewModel.isSyncing.collectAsState()
     val syncError by viewModel.syncError.collectAsState()
     val lastSyncedAt by viewModel.lastSyncedAt.collectAsState()
@@ -206,10 +207,12 @@ fun UnifiedInboxScreen(
         drawerContent = {
             AppDrawerContent(
                 accounts = accounts,
+                accountFolders = accountFolders,
                 onCombinedViewClick = { scope.launch { drawerState.close() } },
-                onAccountClick = { accountId ->
+                onExpandAccount = { accountId -> viewModel.loadFoldersIfNeeded(accountId) },
+                onFolderClick = { accountId, folderKey ->
                     scope.launch { drawerState.close() }
-                    onAccountClick(accountId)
+                    onFolderClick(accountId, folderKey)
                 },
                 onDraftsClick = {
                     scope.launch { drawerState.close() }

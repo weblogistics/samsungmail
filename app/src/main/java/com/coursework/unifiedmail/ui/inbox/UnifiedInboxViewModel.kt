@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.coursework.unifiedmail.data.local.AccountEntity
 import com.coursework.unifiedmail.data.local.ConversationSummary
+import com.coursework.unifiedmail.data.local.FolderEntity
 import com.coursework.unifiedmail.data.local.MessageEntity
 import com.coursework.unifiedmail.data.repository.AccountRepository
 import com.coursework.unifiedmail.data.repository.MailRepository
@@ -46,6 +47,19 @@ class UnifiedInboxViewModel @Inject constructor(
 
     fun setListPaneWidthDp(widthDp: Int) {
         viewModelScope.launch { settingsRepository.setListPaneWidthDp(widthDp) }
+    }
+
+    // Keyed by accountId, populated lazily as the drawer expands an account's folder list — most
+    // sessions never expand every account, so there's no point loading all of them up front.
+    private val _accountFolders = MutableStateFlow<Map<String, List<FolderEntity>>>(emptyMap())
+    val accountFolders: StateFlow<Map<String, List<FolderEntity>>> = _accountFolders.asStateFlow()
+
+    fun loadFoldersIfNeeded(accountId: String) {
+        if (accountId in _accountFolders.value) return
+        viewModelScope.launch {
+            val folders = mailRepository.getFolders(accountId)
+            _accountFolders.update { it + (accountId to folders) }
+        }
     }
 
     private val _searchQuery = MutableStateFlow("")

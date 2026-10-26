@@ -87,7 +87,7 @@ fun MailNavGraph(startAccountId: String? = null, navController: NavHostControlle
             UnifiedInboxScreen(
                 onManageAccountsClick = { navController.navigate(Routes.ACCOUNTS) },
                 onSettingsClick = { navController.navigate(Routes.SETTINGS) },
-                onAccountClick = { accountId -> navController.navigate(Routes.folders(accountId)) },
+                onFolderClick = { accountId, folderKey -> navController.navigate(Routes.inbox(accountId, folderKey)) },
                 onDraftsClick = { navController.navigate(Routes.DRAFTS) },
                 onMessageClick = { accountId, uid ->
                     navController.navigate(Routes.messageDetail(accountId, MailRepository.INBOX_FOLDER_KEY, uid))
