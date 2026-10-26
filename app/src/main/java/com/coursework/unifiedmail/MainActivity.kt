@@ -39,6 +39,10 @@ class MainActivity : ComponentActivity() {
         // of tapping a "new mail in X" notification is landing on that account's Inbox, even if
         // a different account (or Unified Inbox) is normally the default.
         val deepLinkAccountId = intent?.getStringExtra(EXTRA_DEEPLINK_ACCOUNT_ID)
+        // Only set when the notification tapped was for one specific message (see
+        // NotificationHelper) — lands on that message directly instead of just its Inbox.
+        val deepLinkFolderKey = intent?.getStringExtra(EXTRA_DEEPLINK_FOLDER_KEY)
+        val deepLinkUid = intent?.getLongExtra(EXTRA_DEEPLINK_UID, -1L)?.takeIf { it >= 0 }
         // Same tradeoff as MailApplication.onCreate: a single fast local DataStore read at
         // startup, blocked on briefly here since there's no reasonable async alternative for
         // "which account, if any, should auto-open on top of Unified Inbox" this early.
@@ -52,7 +56,11 @@ class MainActivity : ComponentActivity() {
                 ThemeMode.SYSTEM -> isSystemInDarkTheme()
             }
             UnifiedMailTheme(darkTheme = darkTheme) {
-                MailNavGraph(startAccountId = startAccountId)
+                MailNavGraph(
+                    startAccountId = startAccountId,
+                    startFolderKey = deepLinkFolderKey,
+                    startMessageUid = deepLinkUid,
+                )
             }
         }
     }
@@ -71,5 +79,7 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_DEEPLINK_ACCOUNT_ID = "deeplink_account_id"
+        const val EXTRA_DEEPLINK_FOLDER_KEY = "deeplink_folder_key"
+        const val EXTRA_DEEPLINK_UID = "deeplink_uid"
     }
 }

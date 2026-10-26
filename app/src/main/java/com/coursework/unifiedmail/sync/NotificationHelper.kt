@@ -47,10 +47,18 @@ class NotificationHelper @Inject constructor(
             .build()
 
     /**
-     * No-ops if the POST_NOTIFICATIONS permission was never granted (not requested, or denied),
-     * or if [newMessages] is empty. [newMessages] drives the sender/subject/snippet preview when
-     * AppSettings.showNotificationPreview is on (see [buildContent]) — off (or no message data
-     * available) falls back to a bare "N new messages" count, same as before that setting existed.
+     * Posts one notification per message in [newMessages] (each independently dismissible, and
+     * tappable straight to that message), plus a group summary so they still read as "3 new in
+     * Work Account" when collapsed in the shade rather than flooding it with unrelated-looking
+     * entries. No-ops if the POST_NOTIFICATIONS permission was never granted (not requested, or
+     * denied), or if [newMessages] is empty.
+     *
+     * Previously this posted a single notification per *account*, re-`notify()`-ing the same id
+     * (and re-alerting — sound/vibration again) for every subsequent message, which also silently
+     * replaced whatever the last notify() showed: a second email arriving overwrote the first's
+     * notification entirely rather than adding to it, so the first was never actually seen. Each
+     * message getting its own stable id (and never being re-notified once posted, since a delta
+     * sync only ever reports a given message as "new" exactly once) fixes both at once.
      */
     suspend fun showNewMailNotification(accountId: String, accountDisplayName: String, newMessages: List<MessageEntity>) {
         if (newMessages.isEmpty()) return
@@ -60,11 +68,86 @@ class NotificationHelper @Inject constructor(
             if (!granted) return
         }
 
+        val showPreview = settingsProvider.currentSettings().showNotificationPreview
+        val groupKey = "account_$accountId"
+        for (message in newMessages) {
+            showMessageNotification(accountId, accountDisplayName, message, showPreview, groupKey)
+        }
+        showGroupSummary(accountId, accountDisplayName, groupKey)
+    }
+
+    private fun showMessageNotification(
+        accountId: String,
+        accountDisplayName: String,
+        message: MessageEntity,
+        showPreview: Boolean,
+        groupKey: String,
+    ) {
+        // Stable per message (not per account) — see the class doc above for why that matters.
+        val notificationId = message.id.hashCode()
+
+        val contentIntent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            putExtra(MainActivity.EXTRA_DEEPLINK_ACCOUNT_ID, accountId)
+            putExtra(MainActivity.EXTRA_DEEPLINK_FOLDER_KEY, message.folderName)
+            putExtra(MainActivity.EXTRA_DEEPLINK_UID, message.uid)
+        }
+        val contentPendingIntent = PendingIntent.getActivity(
+            context,
+            notificationId,
+            contentIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setAutoCancel(true)
+            .setContentIntent(contentPendingIntent)
+            .setGroup(groupKey)
+            .addAction(0, "Archive", actionPendingIntent(NotificationActionReceiver.ACTION_ARCHIVE, accountId, message, notificationId))
+            .addAction(0, "Trash", actionPendingIntent(NotificationActionReceiver.ACTION_TRASH, accountId, message, notificationId))
+
+        if (showPreview) {
+            val sender = message.fromPersonal?.takeIf { it.isNotBlank() } ?: message.fromAddress ?: accountDisplayName
+            val subject = message.subject?.takeIf { it.isNotBlank() } ?: "(no subject)"
+            val snippet = message.bodyPreview.takeIf { it.isNotBlank() }
+            builder.setContentTitle(sender).setContentText(subject)
+            builder.setStyle(
+                NotificationCompat.BigTextStyle()
+                    .setBigContentTitle(sender)
+                    .bigText(if (snippet != null) "$subject\n$snippet" else subject),
+            )
+        } else {
+            builder.setContentTitle(accountDisplayName).setContentText("New message")
+        }
+
+        NotificationManagerCompat.from(context).notify(notificationId, builder.build())
+    }
+
+    private fun actionPendingIntent(action: String, accountId: String, message: MessageEntity, notificationId: Int): PendingIntent {
+        val intent = Intent(context, NotificationActionReceiver::class.java).apply {
+            // Distinct Intent.action (not just an extra) so two PendingIntents for the same
+            // message/notificationId — Archive vs Trash — don't collide and overwrite each
+            // other's extras, which request-code reuse alone wouldn't prevent.
+            this.action = "$action:${message.id}"
+            putExtra(NotificationActionReceiver.EXTRA_ACCOUNT_ID, accountId)
+            putExtra(NotificationActionReceiver.EXTRA_FOLDER_KEY, message.folderName)
+            putExtra(NotificationActionReceiver.EXTRA_UID, message.uid)
+            putExtra(NotificationActionReceiver.EXTRA_ACTION, action)
+            putExtra(NotificationActionReceiver.EXTRA_NOTIFICATION_ID, notificationId)
+        }
+        return PendingIntent.getBroadcast(
+            context,
+            notificationId,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+
+    /** The collapsed "N new in Account" summary a group of [showMessageNotification] posts bundle under — see showNewMailNotification's doc. */
+    private fun showGroupSummary(accountId: String, accountDisplayName: String, groupKey: String) {
         val notificationId = accountId.hashCode()
 
-        // Deep-links straight to this account's Inbox (see MainActivity/MailNavGraph) rather than
-        // just opening the app to whatever it last showed — the point of a per-account
-        // notification is knowing which mailbox to look at.
         val contentIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             putExtra(MainActivity.EXTRA_DEEPLINK_ACCOUNT_ID, accountId)
@@ -87,55 +170,25 @@ class NotificationHelper @Inject constructor(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        val showPreview = settingsProvider.currentSettings().showNotificationPreview
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setAutoCancel(true)
             .setContentIntent(contentPendingIntent)
+            .setContentTitle(accountDisplayName)
+            .setContentText("New mail")
+            .setGroup(groupKey)
+            .setGroupSummary(true)
+            // The summary gets re-posted (its count effectively) every time another message in
+            // the same batch is added — it must never itself make noise doing that; each real
+            // message already alerted once via its own, separate notification above.
+            .setOnlyAlertOnce(true)
             .addAction(0, "Mark all read", markReadPendingIntent)
-        buildContent(builder, accountDisplayName, newMessages, showPreview)
 
         NotificationManagerCompat.from(context).notify(notificationId, builder.build())
-    }
-
-    /** Bare count, unless [showPreview] is on — then sender/subject (one message) or an inbox-style sender/subject list (several). */
-    private fun buildContent(builder: NotificationCompat.Builder, accountDisplayName: String, newMessages: List<MessageEntity>, showPreview: Boolean) {
-        val count = newMessages.size
-        val countText = if (count == 1) "1 new message" else "$count new messages"
-
-        if (!showPreview) {
-            builder.setContentTitle(accountDisplayName).setContentText(countText)
-            return
-        }
-
-        if (count == 1) {
-            val message = newMessages.single()
-            val sender = message.fromPersonal?.takeIf { it.isNotBlank() } ?: message.fromAddress ?: accountDisplayName
-            val subject = message.subject?.takeIf { it.isNotBlank() } ?: "(no subject)"
-            val snippet = message.bodyPreview.takeIf { it.isNotBlank() }
-            builder.setContentTitle(sender).setContentText(subject)
-            builder.setStyle(
-                NotificationCompat.BigTextStyle()
-                    .setBigContentTitle(sender)
-                    .bigText(if (snippet != null) "$subject\n$snippet" else subject),
-            )
-        } else {
-            builder.setContentTitle(accountDisplayName).setContentText(countText)
-            val inboxStyle = NotificationCompat.InboxStyle().setBigContentTitle(accountDisplayName).setSummaryText(accountDisplayName)
-            for (message in newMessages.take(MAX_INBOX_STYLE_LINES)) {
-                val sender = message.fromPersonal?.takeIf { it.isNotBlank() } ?: message.fromAddress ?: "Unknown sender"
-                val subject = message.subject?.takeIf { it.isNotBlank() } ?: "(no subject)"
-                inboxStyle.addLine("$sender: $subject")
-            }
-            builder.setStyle(inboxStyle)
-        }
     }
 
     private companion object {
         const val CHANNEL_ID = "new_mail"
         const val IDLE_CHANNEL_ID = "mail_idle_push"
-        // Matches the common "show a handful, then just the count" convention (Gmail does the
-        // same) rather than growing the notification unboundedly for a big batch of new mail.
-        const val MAX_INBOX_STYLE_LINES = 5
     }
 }

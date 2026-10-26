@@ -1,5 +1,6 @@
 package com.coursework.unifiedmail.sync
 
+import android.app.NotificationManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -28,8 +29,23 @@ class MarkAllReadReceiver : BroadcastReceiver() {
                 if (notificationId != -1) {
                     NotificationManagerCompat.from(context).cancel(notificationId)
                 }
+                // NotificationHelper now posts one notification per message (grouped under this
+                // summary), not one for the whole account — "mark all read" needs to dismiss
+                // every one of them, not just the summary notificationId above, or they'd sit in
+                // the shade claiming to be about messages that are no longer unread.
+                cancelGroupMembers(context, accountId)
             } finally {
                 pendingResult.finish()
+            }
+        }
+    }
+
+    private fun cancelGroupMembers(context: Context, accountId: String) {
+        val groupKey = "account_$accountId"
+        val notificationManager = context.getSystemService(NotificationManager::class.java) ?: return
+        for (statusBarNotification in notificationManager.activeNotifications) {
+            if (statusBarNotification.notification.group == groupKey) {
+                notificationManager.cancel(statusBarNotification.id)
             }
         }
     }

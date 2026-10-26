@@ -63,6 +63,10 @@
             android:name=".sync.MarkAllReadReceiver"
             android:exported="false" />
 
+        <receiver
+            android:name=".sync.NotificationActionReceiver"
+            android:exported="false" />
+
         <!-- Hands out content:// URIs for downloaded attachments (see AttachmentStorage) so
              other apps can open them via ACTION_VIEW without needing direct file:// access. -->
         <provider

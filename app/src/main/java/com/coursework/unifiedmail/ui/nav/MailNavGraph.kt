@@ -62,14 +62,24 @@ private object Routes {
 }
 
 @Composable
-fun MailNavGraph(startAccountId: String? = null, navController: NavHostController = rememberNavController()) {
+fun MailNavGraph(
+    startAccountId: String? = null,
+    // Both set only when launched from a per-message notification tap (see NotificationHelper) —
+    // lands directly on that message instead of just its account's Inbox.
+    startFolderKey: String? = null,
+    startMessageUid: Long? = null,
+    navController: NavHostController = rememberNavController(),
+) {
     // Unified Inbox stays the true start destination (a stable back-stack root that never
     // dead-ends if the configured default account is later deleted) — a configured
     // single-mailbox default just auto-navigates on top of it once, exactly like tapping that
     // account from the drawer would. See AppSettings.defaultViewAccountId.
-    LaunchedEffect(startAccountId) {
+    LaunchedEffect(startAccountId, startFolderKey, startMessageUid) {
         if (startAccountId != null) {
             navController.navigate(Routes.inbox(startAccountId))
+            if (startFolderKey != null && startMessageUid != null) {
+                navController.navigate(Routes.messageDetail(startAccountId, startFolderKey, startMessageUid))
+            }
         }
     }
 
