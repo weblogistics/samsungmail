@@ -5,10 +5,12 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -65,6 +67,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.compose.rememberNavController
@@ -204,6 +207,12 @@ fun UnifiedInboxScreen(
 
     ModalNavigationDrawer(
         drawerState = drawerState,
+        // Material3's built-in swipe-to-open responds to a rightward drag starting ANYWHERE in
+        // the content — including mid-list — so scrolling a message list with any slight
+        // rightward thumb drift could crack the drawer open. Disabled here in favor of a custom
+        // detector restricted to a thin strip right at the screen's left edge, below, so the
+        // drawer only opens from an actual edge-swipe the way the user expects.
+        gesturesEnabled = false,
         drawerContent = {
             AppDrawerContent(
                 accounts = accounts,
@@ -229,6 +238,7 @@ fun UnifiedInboxScreen(
             )
         },
     ) {
+        Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
             snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
@@ -393,6 +403,25 @@ fun UnifiedInboxScreen(
                     listState = listState,
                 )
             }
+        }
+        // The actual edge-swipe-to-open zone — see gesturesEnabled's comment above. A plain
+        // rightward drag starting within this strip opens the drawer; it doesn't track the
+        // finger in real time the way the built-in gesture did, which is an acceptable trade
+        // for no longer hijacking scrolls anywhere else on screen.
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .fillMaxHeight()
+                .width(20.dp)
+                .pointerInput(drawerState) {
+                    detectHorizontalDragGestures { change, dragAmount ->
+                        if (dragAmount > 0) {
+                            change.consume()
+                            scope.launch { drawerState.open() }
+                        }
+                    }
+                },
+        )
         }
     }
 }
