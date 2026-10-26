@@ -12,6 +12,14 @@ import com.coursework.unifiedmail.data.repository.MailRepository
 import com.coursework.unifiedmail.data.repository.SyncOutcome
 import com.sun.mail.imap.IMAPFolder
 import dagger.hilt.android.AndroidEntryPoint
+import java.util.concurrent.ConcurrentHashMap
+import javax.inject.Inject
+import javax.mail.Folder
+import javax.mail.Session
+import javax.mail.Store
+import javax.mail.event.MessageCountAdapter
+import javax.mail.event.MessageCountEvent
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -21,12 +29,6 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import javax.inject.Inject
-import javax.mail.Folder
-import javax.mail.Session
-import javax.mail.Store
-import javax.mail.event.MessageCountAdapter
-import javax.mail.event.MessageCountEvent
 
 /**
  * Foreground service that keeps one persistent IMAP IDLE connection open per account for
@@ -34,6 +36,12 @@ import javax.mail.event.MessageCountEvent
  * Push is a single global on/off for every account (not per-account) — a deliberate scope cut
  * for this pass. The 15-minute WorkManager periodic sync (see [SyncScheduler]) stays enabled
  * as a backstop even while this runs, since a dropped IDLE connection can go unnoticed.
+ *
+ * Reacts to the account list live (see [reconcileAccountJobs]) rather than snapshotting it once
+ * in [onCreate] — the previous one-shot fetch meant an account added after this service was
+ * already running got no IDLE loop at all until the next full service restart (toggling the
+ * setting off/on, or killing and relaunching the app), and a removed account's loop just kept
+ * retrying with now-invalid credentials indefinitely.
  *
  * Unverified beyond compilation/code review: no device or emulator is available in this
  * environment to soak-test a long-lived IMAP connection against a real server.
@@ -49,13 +57,35 @@ class MailIdleService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    // One entry per account currently being idled. accountStores holds whichever Store a given
+    // account's loop is *currently* connected through (replaced on every reconnect) so onDestroy
+    // can force-close every live socket immediately — coroutine cancellation alone has no effect
+    // on a thread blocked inside JavaMail's synchronous idle() call, so without this, stopping
+    // the service could leave a connection (and a possible sync+notify cycle) alive for up to
+    // IDLE_CYCLE_MS afterward, until the per-loop watchdog eventually catches up on its own.
+    private val accountJobs = ConcurrentHashMap<String, Job>()
+    private val accountStores = ConcurrentHashMap<String, Store>()
+
     override fun onCreate() {
         super.onCreate()
         notificationHelper.createIdleServiceChannel()
         startForeground(FOREGROUND_NOTIFICATION_ID, notificationHelper.buildIdleServiceNotification())
         serviceScope.launch {
-            val accounts = accountRepository.getAllAccountsOnce()
-            accounts.map { account -> launch { runIdleLoop(account) } }
+            accountRepository.observeAccounts().collect { accounts -> reconcileAccountJobs(accounts) }
+        }
+    }
+
+    /** Starts an IDLE loop for any account that doesn't have one yet, and stops one for any account that's gone. */
+    private fun reconcileAccountJobs(accounts: List<AccountEntity>) {
+        val currentIds = accounts.map { it.id }.toSet()
+        for (removedId in accountJobs.keys - currentIds) {
+            accountJobs.remove(removedId)?.cancel()
+            accountStores.remove(removedId)?.let { runCatching { it.close() } }
+        }
+        for (account in accounts) {
+            if (!accountJobs.containsKey(account.id)) {
+                accountJobs[account.id] = serviceScope.launch { runIdleLoop(account) }
+            }
         }
     }
 
@@ -64,6 +94,11 @@ class MailIdleService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        for (store in accountStores.values) {
+            runCatching { store.close() }
+        }
+        accountStores.clear()
+        accountJobs.clear()
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -89,6 +124,7 @@ class MailIdleService : Service() {
                 val session = Session.getInstance(MailSessionFactory.imapProperties(account.imapSecurity))
                 store = session.getStore(MailSessionFactory.imapProtocol(account.imapSecurity))
                 store.connect(account.imapHost, account.imapPort, account.username, password)
+                accountStores[account.id] = store
 
                 val folder = store.getFolder("INBOX") as IMAPFolder
                 folder.open(Folder.READ_ONLY)
@@ -120,12 +156,17 @@ class MailIdleService : Service() {
                         }
                     }
                 }
+            } catch (e: CancellationException) {
+                // Must propagate, not be treated as a retry-able connection failure below — this
+                // is the service (or this one account) actually being told to stop.
+                throw e
             } catch (e: Exception) {
                 delay(backoffMs)
                 backoffMs = (backoffMs * 2).coerceAtMost(MAX_BACKOFF_MS)
             } finally {
                 watchdog?.cancel()
                 runCatching { store?.close() }
+                accountStores.remove(account.id, store)
             }
         }
     }

@@ -8,6 +8,12 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Lets Settings ask the user to whitelist the app from battery optimization when "As they
+         arrive" sync is turned on — a long-lived foreground service holding an open IMAP IDLE
+         connection is exactly what OEM battery managers (One UI, ColorOS, MIUI, ...) tend to
+         kill in the background, often silently. Normal/auto-granted; the actual ask is the
+         system dialog the ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS intent shows. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Read-only — feeds the compose screen's address autocomplete (see DeviceContactsProvider); never written to. -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
 

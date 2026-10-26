@@ -1,6 +1,10 @@
 package com.coursework.unifiedmail.ui.settings
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.PowerManager
+import android.provider.Settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.coursework.unifiedmail.data.local.AccountEntity
@@ -100,9 +104,29 @@ class SettingsViewModel @Inject constructor(
             SyncScheduler.schedulePeriodicSync(appContext, workManagerInterval)
             if (minutes == AppSettings.ON_ARRIVAL_MINUTES) {
                 MailIdleService.start(appContext)
+                requestIgnoreBatteryOptimizations()
             } else {
                 MailIdleService.stop(appContext)
             }
         }
+    }
+
+    /**
+     * "As they arrive" depends on a foreground service holding an IMAP IDLE connection open
+     * indefinitely — exactly the kind of background work OEM battery managers (One UI, ColorOS,
+     * MIUI, ...) are prone to silently kill, which is the single most common reason push sync
+     * "just stops working" with no error anywhere. Asks the user to whitelist the app the moment
+     * they turn the feature on, while the context for why is obvious, rather than leaving them to
+     * find Android's own battery settings on their own after noticing mail stopped arriving.
+     * No-ops quietly if already exempted or if the OEM doesn't support the standard dialog.
+     */
+    private fun requestIgnoreBatteryOptimizations() {
+        val powerManager = appContext.getSystemService(PowerManager::class.java) ?: return
+        if (powerManager.isIgnoringBatteryOptimizations(appContext.packageName)) return
+        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+            data = Uri.parse("package:${appContext.packageName}")
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        runCatching { appContext.startActivity(intent) }
     }
 }
