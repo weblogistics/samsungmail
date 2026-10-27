@@ -265,6 +265,18 @@ fun SwipeActionsBox(
     content: @Composable () -> Unit,
 ) {
     val dismissState = rememberSwipeToDismissBoxState(
+        // Material3's default (50% of the row's width) is tuned for a full swipe-to-dismiss
+        // gesture — appropriate for REMOVE/ARCHIVE, where the row visibly sliding away confirms
+        // it happened. TOGGLE_READ/TOGGLE_FLAG never dismiss the row (confirmValueChange returns
+        // false for them below, so it always snaps back regardless), so a shorter, lighter flick
+        // is the more natural gesture for them — but confirmValueChange is only ever invoked at
+        // all once the drag crosses this threshold, so at the default 50% a quick/short swipe
+        // simply never fires it, with no visible error: the exact "sometimes doesn't work"
+        // behavior reported for swipe-right-to-mark-unread. Lower for every action uniformly
+        // (there's no per-direction threshold hook, and right/left are independently
+        // user-configurable to any action) — still deliberate enough not to trigger off an
+        // incidental horizontal nudge while scrolling.
+        positionalThreshold = { totalDistance -> totalDistance * 0.3f },
         confirmValueChange = { value ->
             val action = when (value) {
                 SwipeToDismissBoxValue.StartToEnd -> swipeRightAction
