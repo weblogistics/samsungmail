@@ -639,7 +639,14 @@ class ImapClientImpl @Inject constructor() : ImapClient {
             ccAddresses = ccAddresses,
             sentDateEpochMillis = message.sentDate?.time,
             receivedDateEpochMillis = message.receivedDate?.time,
-            isRead = message.flags.contains(Flags.Flag.SEEN),
+            // Many IMAP servers never set \Seen on a message the client just appended to Sent —
+            // "read" doesn't really apply to something the user authored, so for the whole
+            // conversation's thread row to not read as unread just because the user's own reply
+            // sits in it, a Sent-folder copy is always treated as read regardless of the server's
+            // flag. Same name-based heuristic as MailRepository.findSentFolderKey, since there's
+            // no dedicated per-account "Sent folder" setting (unlike Trash/Archive/Spam) to check
+            // against instead.
+            isRead = message.flags.contains(Flags.Flag.SEEN) || folder.fullName.contains("sent", ignoreCase = true),
             isFlagged = message.flags.contains(Flags.Flag.FLAGGED),
             hasAttachments = body.attachments.isNotEmpty(),
             bodyPreview = preview,
