@@ -18,7 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -526,7 +526,7 @@ private fun UnifiedMessageListPane(
                 )
             } else {
                 LazyColumn(state = listState) {
-                    items(messages, key = { it.latestMessage.id }) { summary ->
+                    itemsIndexed(messages, key = { _, summary -> summary.latestMessage.id }) { index, summary ->
                         val message = summary.latestMessage
                         MessageListItem(
                             message = message,
@@ -556,7 +556,15 @@ private fun UnifiedMessageListPane(
                             onLongClick = { viewModel.toggleSelection(message.id) },
                             onToggleSelect = { viewModel.toggleSelection(message.id) },
                         )
-                        HorizontalDivider()
+                        // Skipped when this row (or the one right after it) is the open row in
+                        // the wide-screen detail pane — its highlighted background already
+                        // separates it clearly, and a divider sitting right at that boundary
+                        // reads as a stray grey bar (low-contrast against plain rows, suddenly
+                        // visible right where it touches the lighter highlighted one).
+                        val nextIsOpen = messages.getOrNull(index + 1)?.let(isRowOpen) ?: false
+                        if (!isRowOpen(summary) && !nextIsOpen) {
+                            HorizontalDivider()
+                        }
                     }
                 }
             }
