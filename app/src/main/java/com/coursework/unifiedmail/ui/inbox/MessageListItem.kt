@@ -127,7 +127,15 @@ fun MessageListItem(
                     .background(
                         when {
                             isSelected -> MaterialTheme.colorScheme.primaryContainer
-                            isOpen -> MaterialTheme.colorScheme.surfaceContainerHighest
+                            // Not surfaceContainerHighest: this app's theme (see Theme.kt) only
+                            // overrides primary/background/surface for its custom near-black
+                            // Samsung palette — every other M3 tonal role, this one included,
+                            // was left at Material3's unrelated baseline default, so it rendered
+                            // as a flat, mismatched grey with no relation to the rest of the UI.
+                            // A low-alpha tint of the theme's own (customized) primary color
+                            // reads as a deliberate highlight and can't clash with whatever's
+                            // underneath, since it blends with it rather than replacing it.
+                            isOpen -> MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
                             else -> MaterialTheme.colorScheme.surface
                         },
                     )
