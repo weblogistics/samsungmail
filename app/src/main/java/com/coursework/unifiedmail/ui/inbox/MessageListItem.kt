@@ -15,6 +15,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
@@ -121,24 +122,31 @@ fun MessageListItem(
                 ?: message.fromAddress ?: "Unknown sender"
             val isThread = conversationCount > 1
 
+            // Found by a diagnostic build: an opaque Color.Magenta here only ever showed up as a
+            // thin sliver above/below the row, never behind the avatar/text. ListItem draws its
+            // own internal container background over its content area — independent of (and on
+            // top of) whatever's in this composable's own `modifier` chain — defaulting to
+            // colorScheme.surface, so a plain Modifier.background() here was only ever visible in
+            // the sliver of padding outside ListItem's own bounds. That's also why swapping that
+            // background's *color* never visibly changed anything except that sliver: the
+            // near-black "bars" were that mismatch, not a separate element. Setting the color via
+            // ListItem's own `colors` parameter instead makes it the single source of truth for
+            // the whole row, content included.
+            val rowColor = when {
+                isSelected -> MaterialTheme.colorScheme.primaryContainer
+                // A low-alpha tint of the theme's own (customized) primary color — this app's
+                // theme (Theme.kt) only overrides primary/background/surface for its custom
+                // near-black Samsung palette, so any other M3 tonal role (surfaceContainerHighest,
+                // say) is Material3's unrelated baseline default, unrelated to the rest of the UI.
+                // A translucent tint of primary blends with whatever's underneath instead of
+                // replacing it, so it can't clash regardless.
+                isOpen -> MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                else -> MaterialTheme.colorScheme.surface
+            }
             ListItem(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(
-                        when {
-                            isSelected -> MaterialTheme.colorScheme.primaryContainer
-                            // Not surfaceContainerHighest: this app's theme (see Theme.kt) only
-                            // overrides primary/background/surface for its custom near-black
-                            // Samsung palette — every other M3 tonal role, this one included,
-                            // was left at Material3's unrelated baseline default, so it rendered
-                            // as a flat, mismatched grey with no relation to the rest of the UI.
-                            // A low-alpha tint of the theme's own (customized) primary color
-                            // reads as a deliberate highlight and can't clash with whatever's
-                            // underneath, since it blends with it rather than replacing it.
-                            isOpen -> MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                            else -> MaterialTheme.colorScheme.surface
-                        },
-                    )
+                    .background(rowColor)
                     .combinedClickable(
                         onClick = if (selectionModeActive) onToggleSelect else onClick,
                         // A small tactile confirmation that a long-press actually registered
@@ -150,6 +158,7 @@ fun MessageListItem(
                         },
                     )
                     .padding(vertical = if (density == ListDensity.COMPACT) 0.dp else 6.dp),
+                colors = ListItemDefaults.colors(containerColor = rowColor),
                 leadingContent = {
                     if (selectionModeActive) {
                         Checkbox(checked = isSelected, onCheckedChange = { onToggleSelect() })
