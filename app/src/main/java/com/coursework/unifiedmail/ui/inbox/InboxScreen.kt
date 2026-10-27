@@ -408,6 +408,21 @@ private fun InboxMessageListPane(
     isRowOpen: (ConversationSummary) -> Boolean = { false },
     modifier: Modifier = Modifier,
 ) {
+    // rememberLazyListState() survives not just in-session back navigation (reading a message,
+    // then back — correctly lands you where you were) but also a full process death/restore, the
+    // same mechanism Android uses to reopen the app from Recents. Without this, mail that arrived
+    // while the app was backgrounded appears *above* wherever the list was last scrolled to, and
+    // is invisible until the user thinks to scroll up — exactly the "I didn't get any emails"
+    // report this fixes. Gmail/Outlook/Samsung Email all land on the newest mail the same way.
+    var lastSeenTopMessageId by rememberSaveable { mutableStateOf<String?>(null) }
+    val topMessageId = messages.firstOrNull()?.latestMessage?.id
+    LaunchedEffect(topMessageId) {
+        if (topMessageId != null && topMessageId != lastSeenTopMessageId) {
+            listState.scrollToItem(0)
+            lastSeenTopMessageId = topMessageId
+        }
+    }
+
     Column(modifier = modifier) {
         LastSyncedText(
             isSyncing = isSyncing,
