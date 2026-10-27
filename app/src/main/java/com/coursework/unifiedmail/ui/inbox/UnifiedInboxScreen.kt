@@ -371,11 +371,20 @@ fun UnifiedInboxScreen(
                                 selectedIds = selectedIds,
                                 selectionModeActive = selectionModeActive,
                                 viewModel = viewModel,
+                                // Clears the detail pane's own back stack first — see
+                                // InboxScreen's matching comment for why: otherwise a stale,
+                                // unrelated thread left on the stack from an earlier selection
+                                // gets mistaken for "this message belongs to that thread" and
+                                // both rows highlight as open at once.
                                 onMessageClick = { accountId, uid ->
-                                    detailNavController.navigate(detailPaneMessageRoute(accountId, MailRepository.INBOX_FOLDER_KEY, uid))
+                                    detailNavController.navigate(detailPaneMessageRoute(accountId, MailRepository.INBOX_FOLDER_KEY, uid)) {
+                                        popUpTo(detailNavController.graph.startDestinationId)
+                                    }
                                 },
                                 onThreadClick = { accountId, conversationId ->
-                                    detailNavController.navigate(detailPaneThreadRoute(accountId, MailRepository.INBOX_FOLDER_KEY, conversationId))
+                                    detailNavController.navigate(detailPaneThreadRoute(accountId, MailRepository.INBOX_FOLDER_KEY, conversationId)) {
+                                        popUpTo(detailNavController.graph.startDestinationId)
+                                    }
                                 },
                                 listState = listState,
                             )

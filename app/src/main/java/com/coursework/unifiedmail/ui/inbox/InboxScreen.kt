@@ -335,11 +335,24 @@ fun InboxScreen(
                             selectedIds = selectedIds,
                             selectionModeActive = selectionModeActive,
                             viewModel = viewModel,
+                            // Clears the detail pane's own back stack first — a list-initiated
+                            // selection is a fresh "show this instead", not drilling deeper into
+                            // whatever's already open. Without this, clicking a thread then later
+                            // clicking an unrelated single message left the thread's route
+                            // sitting underneath on the stack, which rememberDetailPaneSelection
+                            // mistook for "viewing a message from within that thread" (a pattern
+                            // it specifically expects to mean they're related) and highlighted
+                            // both rows as open — ThreadScreen's own onMessageClick (unaffected
+                            // here) still stacks normally, so that legitimate case still works.
                             onMessageClick = { folderKey, uid ->
-                                detailNavController.navigate(detailPaneMessageRoute(viewModel.accountId, folderKey, uid))
+                                detailNavController.navigate(detailPaneMessageRoute(viewModel.accountId, folderKey, uid)) {
+                                    popUpTo(detailNavController.graph.startDestinationId)
+                                }
                             },
                             onThreadClick = { folderKey, conversationId ->
-                                detailNavController.navigate(detailPaneThreadRoute(viewModel.accountId, folderKey, conversationId))
+                                detailNavController.navigate(detailPaneThreadRoute(viewModel.accountId, folderKey, conversationId)) {
+                                    popUpTo(detailNavController.graph.startDestinationId)
+                                }
                             },
                             listState = listState,
                         )
