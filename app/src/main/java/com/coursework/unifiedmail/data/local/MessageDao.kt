@@ -109,6 +109,14 @@ interface MessageDao {
     @Query("SELECT id FROM messages WHERE accountId = :accountId AND folderName = :folderName AND uid NOT IN (:presentUids)")
     suspend fun getIdsMissing(accountId: String, folderName: String, presentUids: List<Long>): List<String>
 
+    /** Every UID already cached for this account/folder — lets a delta sync detect a message
+     * present on the server but never fetched (see MailRepository.syncFolder's "gap" handling),
+     * which a plain `UID > lastSyncedUid` request alone would never catch: a message added to the
+     * mailbox out of normal delivery order (a migration, a filesystem-level copy, ...) can get a
+     * UID that isn't higher than one already synced, so it's permanently invisible otherwise. */
+    @Query("SELECT uid FROM messages WHERE accountId = :accountId AND folderName = :folderName")
+    suspend fun getUidsForFolder(accountId: String, folderName: String): List<Long>
+
     /** Prunes local rows for messages no longer present on the server (deleted/moved elsewhere). */
     @Query("DELETE FROM messages WHERE accountId = :accountId AND folderName = :folderName AND uid NOT IN (:presentUids)")
     suspend fun deleteMissing(accountId: String, folderName: String, presentUids: List<Long>)

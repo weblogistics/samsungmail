@@ -212,6 +212,23 @@ class MailRepositoryTest {
     }
 
     @Test
+    fun `a delta sync passes every already-cached uid so the server can report ones added out of order`() = runTest {
+        // Real-world report: a message added to the mailbox out of normal delivery order (a
+        // migration, a filesystem-level copy onto the server) can get a UID that isn't actually
+        // higher than what's already synced — invisible to a plain "UID > sinceUid" request
+        // forever. ImapClientImpl.fetchFolderMessages needs the locally-known UIDs to notice a
+        // server-side UID that's neither one of those nor one it's about to fetch via the delta
+        // range; this just confirms the repository actually gathers and passes them.
+        imapClient.messagesResult = Result.success(ImapFetchResult(listOf(fakeMessage(1)), newLastSyncedUid = 1))
+        repository.syncAccount(accountId)
+        assertEquals(emptySet<Long>(), imapClient.lastKnownUidsRequested) // first sync: nothing to know yet
+
+        imapClient.messagesResult = Result.success(ImapFetchResult(listOf(fakeMessage(2)), newLastSyncedUid = 2))
+        repository.syncAccount(accountId)
+        assertEquals(setOf(1L), imapClient.lastKnownUidsRequested) // second sync: already has uid 1 cached
+    }
+
+    @Test
     fun `searchServerUnified upserts matches without touching the sync watermark`() = runTest {
         folderDao.folders["$accountId|INBOX"] = FolderEntity(
             id = "$accountId|INBOX",

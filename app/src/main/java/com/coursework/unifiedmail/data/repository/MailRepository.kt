@@ -466,12 +466,18 @@ class MailRepository @Inject constructor(
             // Only actually consulted for a folder's very first sync (sinceUid <= 0) — every
             // later sync is a UID delta regardless of this setting.
             val syncWindowDays = settingsProvider.currentSettings().syncWindowDays
+            // Lets a delta sync also pick up a message whose UID isn't actually higher than
+            // existingLastUid (added to the mailbox out of normal delivery order) — see
+            // ImapClient.fetchFolderMessages's knownUids doc. Pointless (and skipped) on a first
+            // sync, so only bother querying it for a folder that's actually synced before.
+            val knownUids = if (existingLastUid > 0) messageDao.getUidsForFolder(accountId, folderKey).toSet() else emptySet()
 
             val fetchResult = imapClient.fetchFolderMessages(
                 config = imapConfig,
                 folderFullName = targetFolder.fullName,
                 sinceUid = existingLastUid,
                 syncWindowDays = syncWindowDays,
+                knownUids = knownUids,
             ).getOrElse {
                 return@withLock SyncOutcome.Failure(describeMailError(it))
             }

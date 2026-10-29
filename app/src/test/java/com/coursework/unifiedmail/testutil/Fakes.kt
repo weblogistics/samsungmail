@@ -89,6 +89,7 @@ class FakeImapClient : ImapClient {
     var searchResult: Result<List<ImapMessageInfo>> = Result.success(emptyList())
     var lastSinceUidRequested: Long? = null
     var lastSyncWindowDaysRequested: Int? = null
+    var lastKnownUidsRequested: Set<Long>? = null
     var lastMoveRequested: Triple<String, Long, String>? = null
     var lastSeenFlagRequested: Triple<String, Long, Boolean>? = null
     var lastFlaggedFlagRequested: Triple<String, Long, Boolean>? = null
@@ -101,9 +102,11 @@ class FakeImapClient : ImapClient {
         folderFullName: String,
         sinceUid: Long,
         syncWindowDays: Int,
+        knownUids: Set<Long>,
     ): Result<ImapFetchResult> {
         lastSinceUidRequested = sinceUid
         lastSyncWindowDaysRequested = syncWindowDays
+        lastKnownUidsRequested = knownUids
         return messagesResult
     }
 
@@ -350,6 +353,9 @@ class FakeMessageDao : MessageDao {
 
     override suspend fun getIdsMissing(accountId: String, folderName: String, presentUids: List<Long>): List<String> =
         messages.filter { it.accountId == accountId && it.folderName == folderName && it.uid !in presentUids }.map { it.id }
+
+    override suspend fun getUidsForFolder(accountId: String, folderName: String): List<Long> =
+        messages.filter { it.accountId == accountId && it.folderName == folderName }.map { it.uid }
 
     override suspend fun deleteMissing(accountId: String, folderName: String, presentUids: List<Long>) {
         messages.removeAll {

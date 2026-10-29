@@ -89,6 +89,13 @@ interface ImapClient {
         folderFullName: String,
         sinceUid: Long,
         syncWindowDays: Int,
+        // Every UID this account/folder already has a local row for — lets a delta sync (sinceUid
+        // > 0) also pick up a message present on the server whose UID isn't actually higher than
+        // sinceUid (added to the mailbox out of normal delivery order: a migration, a
+        // filesystem-level copy, ...), which a plain "UID > sinceUid" request would otherwise
+        // never fetch, ever. Ignored on a first sync (sinceUid <= 0), which already fetches
+        // everything in the window regardless. Empty by default for callers/tests that don't care.
+        knownUids: Set<Long> = emptySet(),
     ): Result<ImapFetchResult>
 
     /**
@@ -242,6 +249,7 @@ class ImapClientImpl @Inject constructor() : ImapClient {
         folderFullName: String,
         sinceUid: Long,
         syncWindowDays: Int,
+        knownUids: Set<Long>,
     ): Result<ImapFetchResult> = withContext(Dispatchers.IO) {
         runCatching {
             val session = Session.getInstance(MailSessionFactory.imapProperties(config.security))
@@ -252,6 +260,12 @@ class ImapClientImpl @Inject constructor() : ImapClient {
                 folder.open(Folder.READ_ONLY)
                 try {
                     val newLastSyncedUid = maxOf(sinceUid, folder.getUIDNext() - 1)
+                    val fullFetchProfile = FetchProfile().apply {
+                        add(FetchProfile.Item.ENVELOPE)
+                        add(FetchProfile.Item.FLAGS)
+                        add(UIDFolder.FetchProfileItem.UID)
+                        add(FetchProfile.Item.CONTENT_INFO)
+                    }
 
                     val messages: Array<Message> = if (sinceUid <= 0) {
                         val candidates = if (syncWindowDays > 0) {
@@ -269,13 +283,7 @@ class ImapClientImpl @Inject constructor() : ImapClient {
                     }
 
                     if (messages.isNotEmpty()) {
-                        val fetchProfile = FetchProfile().apply {
-                            add(FetchProfile.Item.ENVELOPE)
-                            add(FetchProfile.Item.FLAGS)
-                            add(UIDFolder.FetchProfileItem.UID)
-                            add(FetchProfile.Item.CONTENT_INFO)
-                        }
-                        folder.fetch(messages, fetchProfile)
+                        folder.fetch(messages, fullFetchProfile)
                     }
 
                     val infos = messages.mapNotNull { message ->
@@ -293,7 +301,25 @@ class ImapClientImpl @Inject constructor() : ImapClient {
                     }
                     val presentUids = allMessages.map { folder.getUID(it) }
 
-                    ImapFetchResult(messages = infos, newLastSyncedUid = newLastSyncedUid, presentUids = presentUids)
+                    // A message added to the mailbox out of normal delivery order (a migration, a
+                    // filesystem-level copy onto the server, ...) can end up with a UID that isn't
+                    // actually higher than sinceUid, so the delta fetch above never asks for it —
+                    // and since it's still present on the server, presentUids-based pruning
+                    // doesn't catch it either (that only removes rows for UIDs that are GONE).
+                    // Reusing allMessages here (already open, UID already fetched) rather than a
+                    // second IMAP round trip to find them again.
+                    val gapInfos = if (sinceUid > 0) {
+                        val alreadyCovered = knownUids + infos.map { it.uid }
+                        val gapMessages = allMessages.filter { folder.getUID(it) !in alreadyCovered }
+                        if (gapMessages.isNotEmpty()) {
+                            folder.fetch(gapMessages.toTypedArray(), fullFetchProfile)
+                        }
+                        gapMessages.mapNotNull { message -> runCatching { toMessageInfo(folder, message) }.getOrNull() }
+                    } else {
+                        emptyList()
+                    }
+
+                    ImapFetchResult(messages = infos + gapInfos, newLastSyncedUid = newLastSyncedUid, presentUids = presentUids)
                 } finally {
                     folder.close(false)
                 }
