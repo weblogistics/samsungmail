@@ -126,6 +126,14 @@ class MessageDetailViewModel @Inject constructor(
         viewModelScope.launch { mailRepository.setMessageRead(accountId, folderKey, uid, isRead) }
     }
 
+    /** Swipe-to-flag's tap equivalent — flagging/unflagging previously required leaving the message. */
+    fun toggleFlag() {
+        val current = _message.value ?: return
+        val isFlagged = !current.isFlagged
+        _message.value = current.copy(isFlagged = isFlagged)
+        viewModelScope.launch { mailRepository.setMessageFlagged(accountId, folderKey, uid, isFlagged) }
+    }
+
     fun moveToTrash() {
         viewModelScope.launch {
             when (val result = mailRepository.moveMessageToTrash(accountId, folderKey, uid)) {

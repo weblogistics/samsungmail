@@ -29,12 +29,14 @@ import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.ReplyAll
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MarkEmailRead
 import androidx.compose.material.icons.filled.MarkEmailUnread
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.Flag as FlagOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.BottomAppBar
@@ -300,6 +302,15 @@ fun MessageDetailScreen(
                             enabled = viewModel.nextMessage != null,
                         ) {
                             Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Next email")
+                        }
+                    }
+                    if (message != null) {
+                        IconButton(onClick = viewModel::toggleFlag) {
+                            if (message?.isFlagged == true) {
+                                Icon(Icons.Filled.Flag, contentDescription = "Unflag", tint = MaterialTheme.colorScheme.error)
+                            } else {
+                                Icon(Icons.Outlined.FlagOutline, contentDescription = "Flag")
+                            }
                         }
                     }
                     Box {

@@ -198,15 +198,27 @@ fun MessageListItem(
                 trailingContent = {
                     Column(horizontalAlignment = Alignment.End) {
                         Text(text = formatRelativeDate(message.sentDateEpochMillis ?: message.receivedDateEpochMillis))
-                        if (hasAttachments) {
-                            Icon(
-                                Icons.Filled.AttachFile,
-                                contentDescription = "Has attachments",
-                                modifier = Modifier
-                                    .padding(top = 4.dp)
-                                    .size(16.dp),
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (hasFlagged) {
+                                Icon(
+                                    Icons.Filled.Flag,
+                                    contentDescription = "Flagged",
+                                    modifier = Modifier
+                                        .padding(top = 4.dp, end = if (hasAttachments) 4.dp else 0.dp)
+                                        .size(16.dp),
+                                    tint = MaterialTheme.colorScheme.error,
+                                )
+                            }
+                            if (hasAttachments) {
+                                Icon(
+                                    Icons.Filled.AttachFile,
+                                    contentDescription = "Has attachments",
+                                    modifier = Modifier
+                                        .padding(top = 4.dp)
+                                        .size(16.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                 },
