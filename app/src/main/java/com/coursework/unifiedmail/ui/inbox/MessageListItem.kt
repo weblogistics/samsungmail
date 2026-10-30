@@ -27,8 +27,8 @@ import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Forum
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -83,6 +83,8 @@ fun MessageListItem(
     // just the newest one shown.
     hasUnread: Boolean = !message.isRead,
     hasAttachments: Boolean = message.hasAttachments,
+    // Same thread-wide semantics as hasUnread — a thread with any flagged message shows the tinge.
+    hasFlagged: Boolean = message.isFlagged,
     density: ListDensity = ListDensity.COMFORTABLE,
     // Off (default): subject is the headline, sender the supporting line below it. On: swapped.
     senderFirstInList: Boolean = false,
@@ -141,6 +143,9 @@ fun MessageListItem(
                 // A translucent tint of primary blends with whatever's underneath instead of
                 // replacing it, so it can't clash regardless.
                 isOpen -> MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                // Same translucent-tint approach as isOpen above, just a faint one so it reads as
+                // a background tinge rather than competing with the selection/open highlights.
+                hasFlagged -> MaterialTheme.colorScheme.error.copy(alpha = 0.10f)
                 else -> MaterialTheme.colorScheme.surface
             }
             ListItem(
@@ -341,7 +346,7 @@ fun SwipeActionsBox(
 
 // TOGGLE_READ renders blue/envelope (matching the blue unread stripe used elsewhere in this list),
 // REMOVE renders red/trash (destructive — was previously blue, indistinguishable in intent from
-// the read/unread toggle), ARCHIVE always green/archive-box, TOGGLE_FLAG always gold/star —
+// the read/unread toggle), ARCHIVE always green/archive-box, TOGGLE_FLAG always gold/flag —
 // consistent regardless of which physical direction each is currently bound to.
 @Composable
 private fun SwipeBackground(action: SwipeAction, direction: SwipeToDismissBoxValue) {
@@ -354,7 +359,7 @@ private fun SwipeBackground(action: SwipeAction, direction: SwipeToDismissBoxVal
         SwipeAction.TOGGLE_READ -> SwipeActionBlue to Icons.Filled.Email
         SwipeAction.REMOVE -> SwipeActionRed to Icons.Filled.Delete
         SwipeAction.ARCHIVE -> SwipeActionGreen to Icons.Filled.Archive
-        SwipeAction.TOGGLE_FLAG -> SwipeActionGold to Icons.Filled.Star
+        SwipeAction.TOGGLE_FLAG -> SwipeActionGold to Icons.Filled.Flag
         SwipeAction.NONE -> Color.Transparent to null
     }
     Box(

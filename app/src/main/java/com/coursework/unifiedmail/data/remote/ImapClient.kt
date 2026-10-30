@@ -132,7 +132,7 @@ interface ImapClient {
         seen: Boolean,
     ): Result<Unit>
 
-    /** Pushes the local star/flag state to the server's \Flagged flag. */
+    /** Pushes the local flagged state to the server's \Flagged flag. */
     suspend fun setFlaggedFlag(
         config: ImapConfig,
         folderFullName: String,

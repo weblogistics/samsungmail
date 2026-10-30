@@ -342,7 +342,7 @@ class MailRepository @Inject constructor(
         // Same best-effort background push as setMessageRead — see its comment.
         repositoryScope.launch {
             runCatching { pushFlaggedFlag(accountId, folderKey, uid, isFlagged) }
-                .onFailure { _backgroundSyncErrors.tryEmit("Couldn't star/unstar on the server — ${describeMailError(it)}") }
+                .onFailure { _backgroundSyncErrors.tryEmit("Couldn't flag/unflag on the server — ${describeMailError(it)}") }
         }
     }
 

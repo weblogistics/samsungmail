@@ -336,6 +336,22 @@ class MailRepositoryTest {
     }
 
     @Test
+    fun `setMessageFlagged updates the local row and pushes the Flagged flag to the server`() = runTest {
+        messageDao.messages.add(fakeMessageEntity(1))
+        folderDao.folders["$accountId|INBOX"] = FolderEntity(
+            id = "$accountId|INBOX",
+            accountId = accountId,
+            fullName = "INBOX",
+            displayName = "INBOX",
+        )
+
+        repository.setMessageFlagged(accountId, MailRepository.INBOX_FOLDER_KEY, 1, isFlagged = true)
+
+        assertTrue(messageDao.messages.first { it.uid == 1L }.isFlagged)
+        assertEquals(Triple("INBOX", 1L, true), imapClient.lastFlaggedFlagRequested)
+    }
+
+    @Test
     fun `syncFolder prunes local messages no longer present on the server`() = runTest {
         messageDao.messages.add(fakeMessageEntity(1))
         messageDao.messages.add(fakeMessageEntity(2))

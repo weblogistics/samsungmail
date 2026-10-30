@@ -542,6 +542,7 @@ private fun UnifiedMessageListPane(
                             conversationCount = summary.messageCount,
                             hasUnread = summary.unreadCount > 0,
                             hasAttachments = summary.attachmentCount > 0,
+                            hasFlagged = summary.flaggedCount > 0,
                             density = settings.listDensity,
                             senderFirstInList = settings.senderFirstInList,
                             accountColor = colorForKey(message.accountId),

@@ -340,7 +340,7 @@ private fun SwipeAction.displayLabel(): String = when (this) {
     SwipeAction.TOGGLE_READ -> "Mark read/unread"
     SwipeAction.REMOVE -> "Move to trash"
     SwipeAction.ARCHIVE -> "Archive"
-    SwipeAction.TOGGLE_FLAG -> "Star/unstar"
+    SwipeAction.TOGGLE_FLAG -> "Flag/unflag"
 }
 
 private fun ThemeMode.displayLabel(): String = when (this) {

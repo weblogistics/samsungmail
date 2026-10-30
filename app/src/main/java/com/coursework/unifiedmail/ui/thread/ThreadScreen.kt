@@ -14,6 +14,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
@@ -124,6 +125,13 @@ private fun ThreadMessageRow(message: MessageEntity, onClick: () -> Unit) {
     val fontWeight = if (message.isRead) FontWeight.Normal else FontWeight.Bold
     val senderLabel = message.fromPersonal?.takeIf { it.isNotBlank() } ?: message.fromAddress ?: "Unknown sender"
     val unreadStripeColor = MaterialTheme.colorScheme.primary
+    // Same faint-tint approach as the inbox list (MessageListItem.rowColor) — see its comment
+    // for why this has to be set via ListItem's own `colors`, not just an outer background.
+    val rowColor = if (message.isFlagged) {
+        MaterialTheme.colorScheme.error.copy(alpha = 0.10f)
+    } else {
+        MaterialTheme.colorScheme.surface
+    }
 
     ListItem(
         modifier = Modifier
@@ -135,6 +143,7 @@ private fun ThreadMessageRow(message: MessageEntity, onClick: () -> Unit) {
                 if (!message.isRead) drawRect(unreadStripeColor, size = Size(4.dp.toPx(), size.height))
             }
             .clickable(onClick = onClick),
+        colors = ListItemDefaults.colors(containerColor = rowColor),
         leadingContent = { SenderAvatar(senderLabel) },
         headlineContent = { Text(text = senderLabel, fontWeight = fontWeight, maxLines = 1) },
         supportingContent = {
