@@ -132,6 +132,49 @@ class ImapClientImplParsingTest {
     }
 
     @Test
+    fun `multiple inline cid images resolve correctly even when one id is a prefix of another`() {
+        // resolveInlineImages matches all cid references in one regex pass; if the alternation
+        // isn't ordered longest-id-first, "cid:img1" can match inside "cid:img12" and leave a
+        // stray "2" (the unmatched tail of the longer id) sitting in the output HTML.
+        val message = reparsed {
+            setFrom("sender@example.com")
+            subject = "Two inline images"
+            val related = MimeMultipart("related")
+            related.addBodyPart(
+                MimeBodyPart().apply {
+                    setContent(
+                        "<img src=\"cid:img12\"><img src=\"cid:img1\">",
+                        "text/html; charset=UTF-8",
+                    )
+                },
+            )
+            related.addBodyPart(
+                MimeBodyPart().apply {
+                    setContent(byteArrayOf(1, 2, 3), "image/png")
+                    contentID = "<img12>"
+                },
+            )
+            related.addBodyPart(
+                MimeBodyPart().apply {
+                    setContent(byteArrayOf(4, 5, 6), "image/png")
+                    contentID = "<img1>"
+                },
+            )
+            setContent(related)
+        }
+
+        val (_, html, attachments) = invokeParseBody(message)
+
+        assertTrue(attachments.isEmpty())
+        requireNotNull(html)
+        assertTrue(html.contains("cid:img") == false)
+        val img12Data = "data:image/png;base64," + java.util.Base64.getEncoder().encodeToString(byteArrayOf(1, 2, 3))
+        val img1Data = "data:image/png;base64," + java.util.Base64.getEncoder().encodeToString(byteArrayOf(4, 5, 6))
+        assertTrue(html.contains("<img src=\"$img12Data\">"))
+        assertTrue(html.contains("<img src=\"$img1Data\">"))
+    }
+
+    @Test
     fun `an HTML-only message falls back to visible text, not the markup itself`() {
         // Common real-world shape for a marketing/newsletter email: no text/plain alternative at
         // all, and a sizeable inline stylesheet ahead of the actual visible content — previously

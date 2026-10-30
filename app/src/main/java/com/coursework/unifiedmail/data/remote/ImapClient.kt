@@ -794,17 +794,29 @@ class ImapClientImpl @Inject constructor() : ImapClient {
         return ParsedBody(effectivePlainText, effectiveHtml, attachments)
     }
 
-    /** Replaces `cid:<id>` references in [html] with `data:` URIs for whichever ids were captured during the walk. */
+    /**
+     * Replaces `cid:<id>` references in [html] with `data:` URIs for whichever ids were captured
+     * during the walk. A single regex pass over [html] rather than one sequential
+     * String.replace() per image — that would materialize a full copy of (an ever-growing)
+     * [html] for every inline image, which gets expensive in peak memory for a message with
+     * several of them, multiplied by however many messages a sync batch holds in memory at once
+     * (see ImapClientImpl.fetchFolderMessages).
+     */
     private fun resolveInlineImages(html: String, inlineImages: Map<String, Pair<String, ByteArray>>): String {
         if (inlineImages.isEmpty()) return html
-        var result = html
-        for ((contentId, typeAndBytes) in inlineImages) {
-            val (contentType, bytes) = typeAndBytes
+        val byLowercaseId = inlineImages.mapKeys { (id, _) -> id.lowercase() }
+        // Longest id first: regex alternation matches whichever alternative succeeds first at a
+        // given position, not the longest one — if one Content-ID were a prefix of another (e.g.
+        // "img1" and "img12"), the shorter one matching first would leave the rest of the longer
+        // id's text as a stray literal suffix in the output instead of being replaced.
+        val pattern = Regex(
+            "(?i)cid:(" + inlineImages.keys.sortedByDescending { it.length }.joinToString("|") { Regex.escape(it) } + ")",
+        )
+        return pattern.replace(html) { match ->
+            val (contentType, bytes) = byLowercaseId.getValue(match.groupValues[1].lowercase())
             val mimeType = contentType.substringBefore(';').trim().ifBlank { "image/png" }
-            val dataUri = "data:$mimeType;base64,${Base64.getEncoder().encodeToString(bytes)}"
-            result = result.replace("cid:$contentId", dataUri, ignoreCase = true)
+            "data:$mimeType;base64,${Base64.getEncoder().encodeToString(bytes)}"
         }
-        return result
     }
 
     private fun looksLikeHtml(text: String): Boolean =
