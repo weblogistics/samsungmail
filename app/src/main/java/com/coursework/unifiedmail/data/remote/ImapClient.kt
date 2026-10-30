@@ -308,9 +308,22 @@ class ImapClientImpl @Inject constructor() : ImapClient {
                     // doesn't catch it either (that only removes rows for UIDs that are GONE).
                     // Reusing allMessages here (already open, UID already fetched) rather than a
                     // second IMAP round trip to find them again.
+                    //
+                    // Bounded below by the lowest UID we already have a local row for
+                    // (knownUids.min): a first sync only ever fetches the most recent
+                    // MAX_INITIAL_SYNC_MESSAGES, but newLastSyncedUid is still set to the server's
+                    // true latest UID, so every older message that was deliberately never synced
+                    // is also "not in knownUids and below sinceUid" — without this floor every one
+                    // of those would look exactly like a genuine gap and get fully re-fetched on
+                    // every single sync, forever (this is what was actually driving the OOM during
+                    // "Refresh all mail": not ~50 messages, but the whole mailbox history).
                     val gapInfos = if (sinceUid > 0) {
                         val alreadyCovered = knownUids + infos.map { it.uid }
-                        val gapMessages = allMessages.filter { folder.getUID(it) !in alreadyCovered }
+                        val oldestKnownUid = knownUids.minOrNull() ?: 0L
+                        val gapMessages = allMessages.filter { message ->
+                            val uid = folder.getUID(message)
+                            uid > oldestKnownUid && uid !in alreadyCovered
+                        }
                         if (gapMessages.isNotEmpty()) {
                             folder.fetch(gapMessages.toTypedArray(), fullFetchProfile)
                         }
