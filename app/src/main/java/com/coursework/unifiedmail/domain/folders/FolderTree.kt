@@ -47,6 +47,29 @@ object FolderTree {
         }
     }
 
+    /**
+     * The folders worth pulling out above the full tree as shortcuts: Inbox/Sent/Drafts/Outbox
+     * (the same set [defaultFolderRank] ranks first) followed by the account's
+     * Trash/Archive/Spam as [resolveSpecialFolders] resolves them. At most one folder per kind
+     * for the same reason resolveSpecialFolders is careful about it — a bare "name contains
+     * sent" match over every folder can hit several lookalikes.
+     */
+    fun commonFolders(
+        folders: List<FolderEntity>,
+        trashFolderFullName: String? = null,
+        archiveFolderFullName: String? = null,
+        spamFolderFullName: String? = null,
+    ): List<FolderEntity> {
+        val defaults = listOfNotNull(
+            folders.firstOrNull { it.fullName.equals("INBOX", ignoreCase = true) },
+            folders.firstOrNull { it.displayName.contains("sent", ignoreCase = true) },
+            folders.firstOrNull { it.displayName.contains("draft", ignoreCase = true) },
+            folders.firstOrNull { it.displayName.contains("outbox", ignoreCase = true) },
+        )
+        val special = resolveSpecialFolders(folders, trashFolderFullName, archiveFolderFullName, spamFolderFullName)
+        return (defaults + special).distinctBy { it.id }
+    }
+
     /** Depth-first flattening for a LazyColumn, skipping a node's subtree while it's collapsed. */
     fun flattenVisible(nodes: List<FolderTreeNode>, collapsedFullNames: Set<String>): List<FolderTreeNode> =
         nodes.flatMap { node ->

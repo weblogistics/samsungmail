@@ -101,6 +101,32 @@ class FolderTreeTest {
     }
 
     @Test
+    fun `commonFolders lists the default folders first, then the account's special ones`() {
+        val folders = listOf(
+            folder("Work"),
+            folder("Trash"),
+            folder("Drafts"),
+            folder("INBOX"),
+            folder("Sent"),
+        )
+
+        val common = FolderTree.commonFolders(folders)
+
+        assertEquals(listOf("INBOX", "Sent", "Drafts", "Trash"), common.map { it.fullName })
+    }
+
+    @Test
+    fun `commonFolders picks one folder per kind and skips kinds the account doesn't have`() {
+        // "Sent" and "Sent Items" both match the sent heuristic — only one may be a shortcut,
+        // and there's no Drafts/Outbox/Archive/Spam here to surface at all.
+        val folders = listOf(folder("INBOX"), folder("Sent"), folder("Sent Items"))
+
+        val common = FolderTree.commonFolders(folders)
+
+        assertEquals(listOf("INBOX", "Sent"), common.map { it.fullName })
+    }
+
+    @Test
     fun `resolveSpecialFolders returns nothing for kinds with no configured folder and no name match`() {
         val folders = listOf(folder("Work"))
 

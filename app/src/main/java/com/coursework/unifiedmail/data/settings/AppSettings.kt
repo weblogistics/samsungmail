@@ -20,6 +20,10 @@ data class AppSettings(
     // SettingsRepository.recordMoveFolderUsage/recentMoveFoldersFor. Kept as composite strings
     // here rather than a richer type since this is the only place that needs to parse them.
     val recentMoveFolders: List<String> = emptyList(),
+    // Raw "accountId::folderFullName" entries, most-recent-first, for folders the user actually
+    // navigated into — distinct from [recentMoveFolders], which only tracks "Move to"
+    // destinations. See SettingsRepository.recordFolderVisit/[recentFoldersFor].
+    val recentFolders: List<String> = emptyList(),
     // Raw "accountId::folderFullName<SEP>count" entries (see MOVE_FOLDER_COUNT_SEPARATOR),
     // tracking how often each destination has been chosen via "Move to" — independent of
     // recency, so a folder used constantly-but-not-recently still surfaces.
@@ -44,6 +48,12 @@ data class AppSettings(
     val senderFirstInList: Boolean = false,
 ) {
     val isPushSync: Boolean get() = syncIntervalMinutes == ON_ARRIVAL_MINUTES
+
+    /** This account's recently-opened folders, most-recent-first. */
+    fun recentFoldersFor(accountId: String): List<String> {
+        val prefix = "$accountId::"
+        return recentFolders.filter { it.startsWith(prefix) }.map { it.removePrefix(prefix) }
+    }
 
     /** This account's recently-used "Move to" destinations, most-recent-first. */
     fun recentMoveFoldersFor(accountId: String): List<String> {

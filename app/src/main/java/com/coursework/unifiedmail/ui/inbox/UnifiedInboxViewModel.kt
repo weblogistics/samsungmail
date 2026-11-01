@@ -62,6 +62,11 @@ class UnifiedInboxViewModel @Inject constructor(
         }
     }
 
+    /** Feeds the drawer's "Recent" folder shortcuts — see SettingsRepository.recordFolderVisit. */
+    fun recordFolderVisit(accountId: String, folderFullName: String) {
+        viewModelScope.launch { settingsRepository.recordFolderVisit(accountId, folderFullName) }
+    }
+
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 

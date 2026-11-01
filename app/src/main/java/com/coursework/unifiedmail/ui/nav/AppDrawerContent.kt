@@ -34,20 +34,31 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.coursework.unifiedmail.data.local.AccountEntity
 import com.coursework.unifiedmail.data.local.FolderEntity
-import com.coursework.unifiedmail.data.repository.MailRepository
 import com.coursework.unifiedmail.domain.folders.FolderTree
 import com.coursework.unifiedmail.ui.theme.colorForKey
 
-/** Account switcher + folder-style navigation, matching Samsung Email's hamburger-drawer pattern. */
+private const val MAX_RECENT_FOLDERS_SHOWN = 2
+
+/**
+ * Account switcher + folder-style navigation, matching Samsung Email's hamburger-drawer pattern.
+ * An expanded account lists its folders in three tiers, so the handful anyone actually uses
+ * aren't buried in a long alphabetical tree: the common ones
+ * (Inbox/Sent/Drafts/Outbox/Trash/Archive/Spam — see FolderTree.commonFolders), then the two most
+ * recently opened, then the complete tree.
+ */
 @Composable
 fun AppDrawerContent(
     accounts: List<AccountEntity>,
     // Only populated for an account once its row has been expanded at least once (see
     // onExpandAccount) — null here means "not loaded yet", not "no folders".
     accountFolders: Map<String, List<FolderEntity>>,
+    // That account's recently-opened folders, most-recent-first — see
+    // AppSettings.recentFoldersFor. Only the first [MAX_RECENT_FOLDERS_SHOWN] that still exist
+    // and aren't already a shortcut get their own section.
+    recentFoldersFor: (accountId: String) -> List<String> = { emptyList() },
     onCombinedViewClick: () -> Unit,
     onExpandAccount: (accountId: String) -> Unit,
-    onFolderClick: (accountId: String, folderKey: String) -> Unit,
+    onFolderClick: (accountId: String, folder: FolderEntity) -> Unit,
     onDraftsClick: () -> Unit,
     onManageAccountsClick: () -> Unit,
     onSettingsClick: () -> Unit,
@@ -126,15 +137,41 @@ fun AppDrawerContent(
                                     .size(20.dp),
                             )
                         } else {
+                            val common = FolderTree.commonFolders(
+                                folders,
+                                account.trashFolderFullName,
+                                account.archiveFolderFullName,
+                                account.spamFolderFullName,
+                            )
+                            val commonIds = common.map { it.id }.toSet()
+                            // Anything already sitting in the shortcuts above would just be a
+                            // duplicate one row further down.
+                            val recent = recentFoldersFor(account.id)
+                                .mapNotNull { fullName -> folders.firstOrNull { it.fullName == fullName } }
+                                .filter { it.id !in commonIds }
+                                .distinctBy { it.id }
+                                .take(MAX_RECENT_FOLDERS_SHOWN)
+
+                            common.forEach { folder ->
+                                FolderRow(folder.displayName) { onFolderClick(account.id, folder) }
+                            }
+                            if (recent.isNotEmpty()) {
+                                FolderSectionCaption("Recent")
+                                recent.forEach { folder ->
+                                    FolderRow(folder.displayName) { onFolderClick(account.id, folder) }
+                                }
+                            }
+                            // Deliberately the *whole* tree, shortcuts included: filtering the
+                            // tiers above back out would orphan their subfolders (on a Maildir
+                            // server most folders are children of INBOX), and the point of this
+                            // section is that it's the complete list in its real hierarchy.
+                            if (common.isNotEmpty() || recent.isNotEmpty()) {
+                                FolderSectionCaption("All folders")
+                            }
                             FolderTree.build(folders).let { tree -> FolderTree.flattenVisible(tree, emptySet()) }.forEach { node ->
-                                Text(
-                                    text = node.folder.displayName,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { onFolderClick(account.id, MailRepository.localFolderKey(node.folder.fullName)) }
-                                        .padding(start = (56 + node.depth * 16).dp, top = 10.dp, bottom = 10.dp, end = 16.dp),
-                                )
+                                FolderRow(node.folder.displayName, depth = node.depth) {
+                                    onFolderClick(account.id, node.folder)
+                                }
                             }
                         }
                     }
@@ -158,4 +195,28 @@ fun AppDrawerContent(
             )
         }
     }
+}
+
+/** One folder line under an expanded account, indented past the account's own icon column. */
+@Composable
+private fun FolderRow(displayName: String, depth: Int = 0, onClick: () -> Unit) {
+    Text(
+        text = displayName,
+        style = MaterialTheme.typography.bodyMedium,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(start = (56 + depth * 16).dp, top = 10.dp, bottom = 10.dp, end = 16.dp),
+    )
+}
+
+/** Divides one expanded account's folder tiers — aligned with the folder rows, not the account rows. */
+@Composable
+private fun FolderSectionCaption(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 56.dp, top = 8.dp, bottom = 2.dp, end = 16.dp),
+    )
 }

@@ -233,11 +233,13 @@ fun UnifiedInboxScreen(
                 AppDrawerContent(
                     accounts = accounts,
                     accountFolders = accountFolders,
+                    recentFoldersFor = { accountId -> settings.recentFoldersFor(accountId) },
                     onCombinedViewClick = { scope.launch { drawerState.close() } },
                     onExpandAccount = { accountId -> viewModel.loadFoldersIfNeeded(accountId) },
-                    onFolderClick = { accountId, folderKey ->
+                    onFolderClick = { accountId, folder ->
                         scope.launch { drawerState.close() }
-                        onFolderClick(accountId, folderKey)
+                        viewModel.recordFolderVisit(accountId, folder.fullName)
+                        onFolderClick(accountId, MailRepository.localFolderKey(folder.fullName))
                     },
                     onDraftsClick = {
                         scope.launch { drawerState.close() }

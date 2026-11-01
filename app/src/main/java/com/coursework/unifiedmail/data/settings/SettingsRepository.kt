@@ -36,6 +36,7 @@ class SettingsRepository @Inject constructor(
         val SYNC_WINDOW_DAYS = intPreferencesKey("sync_window_days")
         val LIST_DENSITY = stringPreferencesKey("list_density")
         val MESSAGE_TEXT_SIZE = stringPreferencesKey("message_text_size")
+        val RECENT_FOLDERS = stringPreferencesKey("recent_folders")
         val RECENT_MOVE_FOLDERS = stringPreferencesKey("recent_move_folders")
         val MOVE_FOLDER_USE_COUNTS = stringPreferencesKey("move_folder_use_counts")
         val DUAL_PANE_MIN_WIDTH_DP = intPreferencesKey("dual_pane_min_width_dp")
@@ -58,8 +59,9 @@ class SettingsRepository @Inject constructor(
             syncWindowDays = prefs[Keys.SYNC_WINDOW_DAYS] ?: defaults.syncWindowDays,
             listDensity = prefs[Keys.LIST_DENSITY]?.toEnumOrNull<ListDensity>() ?: defaults.listDensity,
             messageTextSize = prefs[Keys.MESSAGE_TEXT_SIZE]?.toEnumOrNull<MessageTextSize>() ?: defaults.messageTextSize,
-            recentMoveFolders = prefs[Keys.RECENT_MOVE_FOLDERS]?.split(RECENT_MOVE_FOLDERS_SEPARATOR)?.filter { it.isNotBlank() }.orEmpty(),
-            moveFolderUseCounts = prefs[Keys.MOVE_FOLDER_USE_COUNTS]?.split(RECENT_MOVE_FOLDERS_SEPARATOR)?.filter { it.isNotBlank() }.orEmpty(),
+            recentFolders = prefs[Keys.RECENT_FOLDERS]?.split(ENTRY_SEPARATOR)?.filter { it.isNotBlank() }.orEmpty(),
+            recentMoveFolders = prefs[Keys.RECENT_MOVE_FOLDERS]?.split(ENTRY_SEPARATOR)?.filter { it.isNotBlank() }.orEmpty(),
+            moveFolderUseCounts = prefs[Keys.MOVE_FOLDER_USE_COUNTS]?.split(ENTRY_SEPARATOR)?.filter { it.isNotBlank() }.orEmpty(),
             dualPaneMinWidthDp = prefs[Keys.DUAL_PANE_MIN_WIDTH_DP] ?: defaults.dualPaneMinWidthDp,
             listPaneWidthDp = prefs[Keys.LIST_PANE_WIDTH_DP] ?: defaults.listPaneWidthDp,
             undoDurationSeconds = prefs[Keys.UNDO_DURATION_SECONDS] ?: defaults.undoDurationSeconds,
@@ -135,6 +137,21 @@ class SettingsRepository @Inject constructor(
     }
 
     /**
+     * Records that [accountId]'s [folderFullName] was opened, so the drawer can offer it as a
+     * shortcut above the full folder tree (see [AppSettings.recentFoldersFor]). Only navigation
+     * counts here — "Move to" destinations are tracked separately by [recordMoveFolderUsage],
+     * since moving mail somewhere isn't the same as reading it there.
+     */
+    suspend fun recordFolderVisit(accountId: String, folderFullName: String) {
+        context.settingsDataStore.edit { prefs ->
+            val entry = "$accountId::$folderFullName"
+            val current = prefs[Keys.RECENT_FOLDERS]?.split(ENTRY_SEPARATOR)?.filter { it.isNotBlank() }.orEmpty()
+            val updated = (listOf(entry) + current.filterNot { it == entry }).take(MAX_RECENT_FOLDERS)
+            prefs[Keys.RECENT_FOLDERS] = updated.joinToString(ENTRY_SEPARATOR)
+        }
+    }
+
+    /**
      * Records a "Move to" destination for [accountId] against both tracks the folder picker
      * draws on: recency (moved to the front, see [AppSettings.recentMoveFoldersFor]) and
      * frequency (count incremented, see [AppSettings.mostUsedMoveFoldersFor]) — one is "used
@@ -144,18 +161,18 @@ class SettingsRepository @Inject constructor(
         context.settingsDataStore.edit { prefs ->
             val entry = "$accountId::$folderFullName"
 
-            val recentCurrent = prefs[Keys.RECENT_MOVE_FOLDERS]?.split(RECENT_MOVE_FOLDERS_SEPARATOR)?.filter { it.isNotBlank() }.orEmpty()
+            val recentCurrent = prefs[Keys.RECENT_MOVE_FOLDERS]?.split(ENTRY_SEPARATOR)?.filter { it.isNotBlank() }.orEmpty()
             val recentUpdated = (listOf(entry) + recentCurrent.filterNot { it == entry }).take(MAX_RECENT_MOVE_FOLDERS)
-            prefs[Keys.RECENT_MOVE_FOLDERS] = recentUpdated.joinToString(RECENT_MOVE_FOLDERS_SEPARATOR)
+            prefs[Keys.RECENT_MOVE_FOLDERS] = recentUpdated.joinToString(ENTRY_SEPARATOR)
 
             val countPrefix = "$entry${AppSettings.MOVE_FOLDER_COUNT_SEPARATOR}"
-            val countsCurrent = prefs[Keys.MOVE_FOLDER_USE_COUNTS]?.split(RECENT_MOVE_FOLDERS_SEPARATOR)?.filter { it.isNotBlank() }.orEmpty()
+            val countsCurrent = prefs[Keys.MOVE_FOLDER_USE_COUNTS]?.split(ENTRY_SEPARATOR)?.filter { it.isNotBlank() }.orEmpty()
             val existingCount = countsCurrent.firstOrNull { it.startsWith(countPrefix) }
                 ?.removePrefix(countPrefix)?.toIntOrNull() ?: 0
             val countsUpdated = (countsCurrent.filterNot { it.startsWith(countPrefix) } + "$countPrefix${existingCount + 1}")
                 .sortedByDescending { it.substringAfterLast(AppSettings.MOVE_FOLDER_COUNT_SEPARATOR).toIntOrNull() ?: 0 }
                 .take(MAX_MOVE_FOLDER_USE_COUNTS)
-            prefs[Keys.MOVE_FOLDER_USE_COUNTS] = countsUpdated.joinToString(RECENT_MOVE_FOLDERS_SEPARATOR)
+            prefs[Keys.MOVE_FOLDER_USE_COUNTS] = countsUpdated.joinToString(ENTRY_SEPARATOR)
         }
     }
 
@@ -163,10 +180,11 @@ class SettingsRepository @Inject constructor(
         runCatching { java.lang.Enum.valueOf(T::class.java, this) }.getOrNull()
 
     private companion object {
-        const val RECENT_MOVE_FOLDERS_SEPARATOR = "|||"
+        const val ENTRY_SEPARATOR = "|||"
         // Capped across all accounts combined, not per-account — a handful of recent
         // destinations is all a "recently used" section is meant to surface anyway.
         const val MAX_RECENT_MOVE_FOLDERS = 12
+        const val MAX_RECENT_FOLDERS = 12
         const val MAX_MOVE_FOLDER_USE_COUNTS = 40
     }
 }
