@@ -182,6 +182,19 @@ class AttachmentStorage @Inject constructor(
         if (copied == null) null else PickedAttachment(fileName = fileName, mimeType = mimeType, sizeBytes = file.length(), localFilePath = file.absolutePath)
     }
 
+    /**
+     * Like [copyForOutbox] but from bytes already in hand (a download result, or a cached copy
+     * read via [cachedBytes]) rather than a picker `content://` Uri — used to carry a forwarded
+     * message's own attachments into the new outgoing message. See
+     * ComposeViewModel's forward prefill.
+     */
+    suspend fun copyDownloadedForOutbox(downloaded: DownloadedAttachment, outboxId: String): PickedAttachment = withContext(Dispatchers.IO) {
+        val dir = File(context.filesDir, "outbox_attachments/$outboxId").apply { mkdirs() }
+        val file = uniqueFile(dir, downloaded.fileName)
+        file.writeBytes(downloaded.bytes)
+        PickedAttachment(fileName = downloaded.fileName, mimeType = downloaded.mimeType, sizeBytes = file.length(), localFilePath = file.absolutePath)
+    }
+
     /** Removes a completed/abandoned outbox item's private attachment copies. */
     fun deleteOutboxAttachments(outboxId: String) {
         File(context.filesDir, "outbox_attachments/$outboxId").deleteRecursively()

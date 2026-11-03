@@ -11,6 +11,7 @@ import com.coursework.unifiedmail.data.contacts.DeviceContactsProvider
 import com.coursework.unifiedmail.data.files.AttachmentStorage
 import com.coursework.unifiedmail.data.files.PickedAttachment
 import com.coursework.unifiedmail.data.local.MessageEntity
+import com.coursework.unifiedmail.data.remote.DownloadedAttachment
 import com.coursework.unifiedmail.data.repository.AccountRepository
 import com.coursework.unifiedmail.data.repository.ComposeDraft
 import com.coursework.unifiedmail.data.repository.DraftContent
@@ -124,6 +125,7 @@ class ComposeViewModel @Inject constructor(
                     sourceMessage = source
                     _uiState.update { it.copy(to = "", cc = "", subject = "", bodyRuns = emptyList()) }
                     prefillFromSource(source, account?.emailAddress, signatureBlock)
+                    if (mode == ComposeMode.FORWARD) forwardAttachments(source)
                 }
             }
         }
@@ -272,6 +274,29 @@ class ComposeViewModel @Inject constructor(
                 }
             }
             ComposeMode.NEW -> Unit
+        }
+    }
+
+    /**
+     * Forwarding carries the original message's attachments along too, not just its body — the
+     * prefill above only ever handled bodyHtml/bodyText, so a forwarded message silently dropped
+     * every file. Reuses an already-cached copy where one exists (the user may have just opened
+     * the attachment from this same message), otherwise downloads it fresh, then copies it into
+     * this draft's own outbox attachment folder exactly as if it had been picked from the device.
+     * A single attachment failing to download doesn't block the rest — the user still gets a
+     * forward with whatever did come through, rather than none of it over one bad file.
+     */
+    private suspend fun forwardAttachments(source: MessageEntity) {
+        for (attachment in mailRepository.getAttachments(accountId, sourceFolderKey, source.uid)) {
+            val cached = attachmentStorage.cachedBytes(attachment.id, attachment.fileName)
+            val downloaded = if (cached != null) {
+                DownloadedAttachment(attachment.fileName, attachment.mimeType, cached)
+            } else {
+                mailRepository.downloadAttachment(accountId, sourceFolderKey, source.uid, attachment.indexInMessage)
+                    .getOrNull() ?: continue
+            }
+            val picked = attachmentStorage.copyDownloadedForOutbox(downloaded, draftId)
+            _uiState.update { it.copy(attachments = it.attachments + picked) }
         }
     }
 
