@@ -150,9 +150,8 @@ class MailIdleService : Service() {
                     if (newMailSeen) {
                         newMailSeen = false
                         val outcome = mailRepository.syncFolder(account.id, MailRepository.INBOX_FOLDER_KEY)
-                        if (outcome is SyncOutcome.Success && outcome.newMessageCount > 0 && account.notificationsEnabled) {
-                            val recent = mailRepository.getRecentMessages(account.id, MailRepository.INBOX_FOLDER_KEY, outcome.newMessageCount)
-                            notificationHelper.showNewMailNotification(account.id, account.displayName, recent)
+                        if (outcome is SyncOutcome.Success && outcome.newMessages.isNotEmpty() && account.notificationsEnabled) {
+                            notificationHelper.showNewMailNotification(account.id, account.displayName, outcome.newMessages)
                         }
                     }
                 }

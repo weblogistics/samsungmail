@@ -229,6 +229,31 @@ class MailRepositoryTest {
     }
 
     @Test
+    fun `a sync's newMessages excludes any out-of-order-uid backfill, so a dismissed notification is never re-shown`() = runTest {
+        // Real-world report: SyncWorker/MailIdleService used to notify about every message a sync
+        // returned, including one the out-of-order-UID gap-fill backfilled (see
+        // ImapClientImpl.fetchFolderMessages's gapInfos) — an older message the user may have
+        // already seen and dismissed a notification for on another client days ago. That message
+        // reappearing in SyncOutcome.Success.newMessages would re-show a notification the user
+        // already dismissed; ImapFetchResult.newlyArrivedUids is what keeps the two apart.
+        imapClient.messagesResult = Result.success(ImapFetchResult(listOf(fakeMessage(1)), newLastSyncedUid = 1))
+        repository.syncAccount(accountId)
+
+        imapClient.messagesResult = Result.success(
+            ImapFetchResult(
+                messages = listOf(fakeMessage(2), fakeMessage(3)),
+                newLastSyncedUid = 3,
+                // Only uid 3 actually just arrived; uid 2 stands in for a backfilled gap message.
+                newlyArrivedUids = setOf(3L),
+            ),
+        )
+        val outcome = repository.syncAccount(accountId)
+
+        assertTrue(outcome is SyncOutcome.Success)
+        assertEquals(listOf(3L), (outcome as SyncOutcome.Success).newMessages.map { it.uid })
+    }
+
+    @Test
     fun `searchServerUnified upserts matches without touching the sync watermark`() = runTest {
         folderDao.folders["$accountId|INBOX"] = FolderEntity(
             id = "$accountId|INBOX",

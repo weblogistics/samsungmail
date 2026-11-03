@@ -35,9 +35,8 @@ class SyncWorker @AssistedInject constructor(
                     // Only the unattended periodic path notifies — a foreground manual refresh
                     // means the user is already looking at the list.
                     for ((account, result) in results) {
-                        if (result is SyncOutcome.Success && result.newMessageCount > 0 && account.notificationsEnabled) {
-                            val recent = mailRepository.getRecentMessages(account.id, MailRepository.INBOX_FOLDER_KEY, result.newMessageCount)
-                            notificationHelper.showNewMailNotification(account.id, account.displayName, recent)
+                        if (result is SyncOutcome.Success && result.newMessages.isNotEmpty() && account.notificationsEnabled) {
+                            notificationHelper.showNewMailNotification(account.id, account.displayName, result.newMessages)
                         }
                     }
                 }

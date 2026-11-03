@@ -78,6 +78,13 @@ data class ImapFetchResult(
     // local rows for messages deleted/moved on the server via another client. Defaults to null
     // (not reconciled) for callers/tests that don't care about deletions.
     val presentUids: List<Long>? = null,
+    // The subset of [messages] that actually just arrived (UID > sinceUid) — as opposed to an
+    // older message [messages] also includes because the out-of-order-UID gap-fill backfilled
+    // it (see fetchFolderMessages' gapInfos). Driving a "new mail" notification off every row in
+    // [messages] would re-notify about a message the user already saw days ago, the moment some
+    // unrelated backfill happens to run in the same sync — this is what a caller should actually
+    // treat as new. Defaults to empty for callers/tests that don't care (search, "load older").
+    val newlyArrivedUids: Set<Long> = emptySet(),
 )
 
 /** Behind an interface so MailRepository can be unit-tested against a fake instead of real IMAP. */
@@ -332,7 +339,15 @@ class ImapClientImpl @Inject constructor() : ImapClient {
                         emptyList()
                     }
 
-                    ImapFetchResult(messages = infos + gapInfos, newLastSyncedUid = newLastSyncedUid, presentUids = presentUids)
+                    ImapFetchResult(
+                        messages = infos + gapInfos,
+                        newLastSyncedUid = newLastSyncedUid,
+                        presentUids = presentUids,
+                        // Just infos, not gapInfos — gap-filled messages are backfilled *old* mail
+                        // the user may well have already seen (and dismissed a notification for)
+                        // on another client; they must never count as "newly arrived" again.
+                        newlyArrivedUids = infos.map { it.uid }.toSet(),
+                    )
                 } finally {
                     folder.close(false)
                 }
