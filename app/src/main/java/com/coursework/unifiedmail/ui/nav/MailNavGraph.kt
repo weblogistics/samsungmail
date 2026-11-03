@@ -78,6 +78,19 @@ fun MailNavGraph(
     // single-mailbox default just auto-navigates on top of it once, exactly like tapping that
     // account from the drawer would. See AppSettings.defaultViewAccountId.
     LaunchedEffect(startAccountId, startFolderKey, startMessageUid, startReply) {
+        // Only ever consume the deep link against a genuinely fresh graph — this effect also
+        // reruns after MainActivity is recreated with the SAME Intent still attached (a
+        // foldable's fold/unfold is a configuration change, and a notification's
+        // FLAG_ACTIVITY_CLEAR_TASK intent is handed to a brand-new Activity instance either
+        // way), by which point NavController has already *restored* whatever back stack existed
+        // before the recreation — including, commonly, the very message/account screen this same
+        // deep link had already opened. Re-running the navigate() calls below on top of that
+        // restored stack duplicated every entry they push, so each recreation meant one more
+        // Back press to unwind — "sometimes I have to click back many times" on a foldable that
+        // was folded/unfolded while reading mail. currentDestination is already UNIFIED_INBOX
+        // (the real start destination) on a truly fresh launch and something else on a restore,
+        // so this is a reliable one-shot guard either way.
+        if (navController.currentDestination?.route != Routes.UNIFIED_INBOX) return@LaunchedEffect
         if (startAccountId != null) {
             navController.navigate(Routes.inbox(startAccountId))
             if (startFolderKey != null && startMessageUid != null) {
