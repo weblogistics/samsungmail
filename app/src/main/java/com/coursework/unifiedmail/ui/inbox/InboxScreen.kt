@@ -492,7 +492,19 @@ private fun InboxMessageListPane(
                             onClick = {
                                 if (summary.messageCount > 1) {
                                     onThreadClick(message.folderName, message.conversationId)
-                                } else {
+                                } else if (!isRowOpen(summary)) {
+                                    // A tap on the row already showing in the detail pane would
+                                    // otherwise still navigate — Jetpack Navigation has no reason
+                                    // to treat "the same destination" specially without
+                                    // launchSingleTop, so it tears down and recreates
+                                    // MessageDetailScreen's ViewModel from scratch. That reruns
+                                    // its "mark read on open" exactly like opening a brand-new
+                                    // message, which can race a swipe-to-unread on this same row
+                                    // (e.g. a tap landing right after the swipe gesture) and win,
+                                    // silently flipping the message straight back to read — this
+                                    // is "swipe to Unread doesn't work" for whichever row happens
+                                    // to already be open. Skipping the redundant navigate when
+                                    // it's already open closes that race entirely.
                                     viewModel.recordReadingOrder()
                                     onMessageClick(message.folderName, message.uid)
                                 }

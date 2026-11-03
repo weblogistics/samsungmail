@@ -553,7 +553,12 @@ private fun UnifiedMessageListPane(
                             onClick = {
                                 if (summary.messageCount > 1) {
                                     onThreadClick(message.accountId, message.conversationId)
-                                } else {
+                                } else if (!isRowOpen(summary)) {
+                                    // See InboxScreen's matching onClick for why this guard
+                                    // exists: without it, re-navigating to the already-open row
+                                    // recreates MessageDetailScreen's ViewModel, which re-marks
+                                    // the message read on "open" and can race/clobber a
+                                    // swipe-to-unread on this same row.
                                     viewModel.recordReadingOrder()
                                     onMessageClick(message.accountId, message.uid)
                                 }
