@@ -266,7 +266,8 @@ class ImapClientImpl @Inject constructor() : ImapClient {
                 val folder = store.getFolder(folderFullName) as IMAPFolder
                 folder.open(Folder.READ_ONLY)
                 try {
-                    val newLastSyncedUid = maxOf(sinceUid, folder.getUIDNext() - 1)
+                    val highestUid = folder.getUIDNext() - 1
+                    val newLastSyncedUid = maxOf(sinceUid, highestUid)
                     val fullFetchProfile = FetchProfile().apply {
                         add(FetchProfile.Item.ENVELOPE)
                         add(FetchProfile.Item.FLAGS)
@@ -285,6 +286,16 @@ class ImapClientImpl @Inject constructor() : ImapClient {
                         // by sequence number (ascending = oldest first, same as the old
                         // count-slicing did) before taking the most recent MAX_INITIAL_SYNC_MESSAGES.
                         candidates.sortedBy { it.messageNumber }.takeLast(MAX_INITIAL_SYNC_MESSAGES).toTypedArray()
+                    } else if (sinceUid >= highestUid) {
+                        // Nothing new. getMessagesByUID(start, LASTUID) issues a "start:*" UID
+                        // range, and IMAP servers resolve a range whose start exceeds the
+                        // mailbox's actual highest UID by falling back to just the highest-UID
+                        // message rather than an empty result (a well-known IMAP/JavaMail
+                        // gotcha). Calling it anyway here would "discover" the current newest
+                        // message as if it had just arrived on every sync that finds nothing
+                        // genuinely new — notifying about it regardless of how long it's actually
+                        // been sitting there read and flagged.
+                        emptyArray()
                     } else {
                         folder.getMessagesByUID(sinceUid + 1, UIDFolder.LASTUID)
                     }
